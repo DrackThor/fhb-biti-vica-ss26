@@ -10,7 +10,7 @@ VLAN steht für **Virtual Local Area Network**. Ein LAN beinhaltet alle Geräte 
 
 Wenn man einen Switch nur mit Default Settings konfiguriert hat, dann erhält jedes Gerät, das an diesem Switch angeschlossen ist, jedes Frame, das bei einem der Ports eintritt. Wenn man das nicht möchte, kann man VLANs verwenden, also virtuelle LANs. Diese ermöglichen einem, getrennte Broadcast-Domänen zu haben, indem der Switch verschiedene Interfaces zu verschiedenen Domänen konfiguriert.
 
-![Grafik 1](../assets/vlan1.png)
+![Grafik 1](assets/vlan1.png)
 
 *Grafik 1: Ohne VLAN befinden sich alle Geräte in einer Broadcast-Domäne, mit VLANs werden diese logisch getrennt.*
 
@@ -45,11 +45,11 @@ Ein Switch arbeitet intern dann so:
 
 Dadurch entstehen getrennte Broadcast-Domänen innerhalb eines einzigen physischen Netzwerks.
 
-![Grafik 2](../assets/vlan2.png)
+![Grafik 1](assets/vlan2.png)
 
 *Grafik 2: Trunk-Ports übertragen mehrere VLANs gleichzeitig mittels 802.1Q-Tagging, während Access-Ports nur einem VLAN zugeordnet sind.*
 
-![Grafik 3](../assets/vlan3.png)
+![Grafik 1](assets/vlan3.png)
 
 *Grafik 3: Beim 802.1Q-Tagging wird ein zusätzlicher Header in den Ethernet-Frame eingefügt, der die VLAN-ID enthält.*
 
@@ -88,7 +88,7 @@ Ein einfaches VLAN-Setup könnte so aussehen:
 
 Wichtig ist dabei, dass VLANs unabhängig von der physischen Topologie sind. Geräte können also logisch gruppiert werden, egal wo sie angeschlossen sind.
 
-![Grafik 4](../assets/vlan4.png)
+![Grafik 1](assets/vlan4.png)
 
 *Grafik 4: Beispielhaftes VLAN Trunking und VLAN-Zuordnung auf zwei Switches. Ports werden logisch unterschiedlichen Netzwerken zugewiesen.*
 
