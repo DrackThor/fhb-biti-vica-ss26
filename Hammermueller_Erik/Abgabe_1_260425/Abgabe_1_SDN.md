@@ -46,8 +46,6 @@ In SDN wird die Control Plane zentralisiert und in Software implementiert. Die N
 
 Die Architektur von SDN besteht typischerweise aus drei Schichten:
 
-![SDN Architektur](../assets/what-is-software-defined-networking.png)
-
 #### 1. Application Layer
 - Enthält Anwendungen und Netzwerkdienste  
 - z. B. Firewall, Load Balancing, Monitoring  
@@ -60,6 +58,8 @@ Die Architektur von SDN besteht typischerweise aus drei Schichten:
 #### 3. Infrastructure Layer
 - Physische oder virtuelle Geräte (Switches, Router)  
 - führen die Anweisungen des Controllers aus  
+
+![SDN Architektur](../assets/what-is-software-defined-networking.png)
 
 ---
 
