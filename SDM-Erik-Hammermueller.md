@@ -1,7 +1,7 @@
 # Software Defined Networking (SDN)
 
 **Autor:** Erik Hammermüller  
-
+ 
 ---
 
 ## 1. Was ist SDN?
