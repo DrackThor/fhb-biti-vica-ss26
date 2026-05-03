@@ -23,7 +23,7 @@ Man unterscheidet zwei Arten von Hypervisoren:
 
 Durch diese Technik können Systeme flexibel bereitgestellt, getestet und effizient genutzt werden.
 
-![Abbildung 1: Architektur einer virtuellen Maschine](Architektur einer virtuellen Maschine.webp)
+![Abbildung 1: Architektur einer virtuellen Maschine](../assets/Architektur_einer_virtuellen_Maschine.webp)
 
 *Abbildung 1: Architektur einer virtuellen Maschine (Quelle: IONOS, angepasst nach https://www.ionos.at/digitalguide/server/knowhow/virtuelle-maschinen/)*
 
