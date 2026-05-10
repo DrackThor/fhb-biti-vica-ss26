@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: opentofu/setup-opentofu@v1
-
+      #
       # Navigate directly into the assignment folder to execute the code
       - name: Initialize & Apply
         working-directory: ./Gruenwald_Georg/Abgabe_2
