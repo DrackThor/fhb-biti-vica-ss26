@@ -12,8 +12,8 @@ jobs:
 
       # Pulled from plain-text Repository Variables
       TF_VAR_root_domain: ${{ vars.ROOT_DOMAIN }}
-      TF_VAR_stats_domain: ${{ vars.STATS_PREFIX }}
-      TF_VAR_api_domain: ${{ vars.API_PREFIX }}
+      TF_VAR_stats_prefix: ${{ vars.STATS_PREFIX }}
+      TF_VAR_api_prefix: ${{ vars.API_PREFIX }}
       TF_VAR_admin_email: ${{ vars.ADMIN_EMAIL }}
     
     steps:
