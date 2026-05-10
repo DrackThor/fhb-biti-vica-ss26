@@ -53,19 +53,31 @@ resource "exoscale_compute_instance" "vm" {
   })
 }
 
-# --- DNS Automation (TODO) ---
+# --- DNS Automation ---
 
-# This assumes the domain is already managed in Exoscale DNS
-resource "exoscale_domain_record" "stats" {
-  domain      = var.root_domain
-  name        = split(".", var.stats_domain)[0]
-  record_type = "A"
-  content     = exoscale_compute_instance.vm.public_ip_address
+# Look up the zone dynamically using the root variable
+data "exoscale_domain" "university_zone" {
+  name = var.root_domain
 }
 
-resource "exoscale_domain_record" "api_docs" {
-  domain      = var.root_domain
-  name        = split(".", var.api_domain)[0]
+# Create the Stats Subdomain
+resource "exoscale_domain_record" "stats_subdomain" {
+  domain      = data.exoscale_domain.university_zone.id
+  
+  # Strips the root domain out (e.g., leaves "stats.ggruenwald")
+  name        = replace(var.stats_domain, ".${var.root_domain}", "")
   record_type = "A"
   content     = exoscale_compute_instance.vm.public_ip_address
+  ttl         = 3600
+}
+
+# Create the API Subdomain
+resource "exoscale_domain_record" "api_subdomain" {
+  domain      = data.exoscale_domain.university_zone.id
+  
+  # Strips the root domain out (e.g., leaves "api.ggruenwald")
+  name        = replace(var.api_domain, ".${var.root_domain}", "")
+  record_type = "A"
+  content     = exoscale_compute_instance.vm.public_ip_address
+  ttl         = 3600
 }
