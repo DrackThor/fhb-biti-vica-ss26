@@ -1,0 +1,71 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+packages:
+  - docker.io
+  - docker-compose
+  - curl
+  - debian-keyring
+  - debian-archive-keyring
+  - apt-transport-https
+
+write_files:
+  # Docker Compose for Netdata and Swagger UI
+  - path: /opt/monitoring/docker-compose.yml
+    content: |
+      version: '3.8'
+      services:
+        netdata:
+          image: netdata/netdata:stable
+          container_name: netdata
+          pid: host
+          network_mode: host
+          restart: always
+          cap_add: [SYS_PTRACE, SYS_ADMIN]
+          security_opt: [apparmor:unconfined]
+          volumes:
+            - netdataconfig:/etc/netdata
+            - netdatalib:/var/lib/netdata
+            - /proc:/host/proc:ro
+            - /sys:/host/sys:ro
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+
+        swagger-ui:
+          image: swaggerapi/swagger-ui
+          container_name: swagger-ui
+          restart: always
+          ports: ["8080:8080"]
+          environment:
+            - API_URL=https://${stats_domain}/api/v1/swagger.json
+
+  # Caddy Reverse Proxy with CORS for API Docs
+  - path: /etc/caddy/Caddyfile
+    content: |
+      {
+          email ${admin_email}
+      }
+
+      ${stats_domain} {
+          # Allow the API Docs domain to fetch the Swagger JSON
+          header {
+              Access-Control-Allow-Origin "https://${api_domain}"
+              Access-Control-Allow-Methods "GET, OPTIONS"
+          }
+          reverse_proxy localhost:19999
+      }
+
+      ${api_domain} {
+          reverse_proxy localhost:8080
+      }
+
+runcmd:
+  # Install Caddy
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
+  - apt-get update && apt-get install -y caddy
+  
+  # Start Containers
+  - systemctl enable --now docker
+  - cd /opt/monitoring && docker-compose up -d
+  - systemctl restart caddy
