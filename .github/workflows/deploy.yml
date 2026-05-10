@@ -22,7 +22,7 @@ jobs:
       - uses: opentofu/setup-opentofu@v1
       
       - name: Initialize & Apply
-        working-directory: ./Abgabe_2
+        working-directory: ./Gruenwald_Georg/Abgabe_2
         run: |
           tofu init
           tofu apply -auto-approve
