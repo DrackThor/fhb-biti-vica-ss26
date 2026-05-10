@@ -52,8 +52,8 @@ resource "exoscale_compute_instance" "vm" {
   
   # Dynamically build the full domains and inject them into cloud-init
   user_data = templatefile("${path.module}/cloud-init.yaml", {
-    stats_fqdn  = "${var.stats_prefix}.${var.root_domain}"
-    api_fqdn    = "${var.api_prefix}.${var.root_domain}"
+    stats_domain = "${var.stats_prefix}.${var.root_domain}"
+    api_domain = "${var.api_prefix}.${var.root_domain}"
     admin_email = var.admin_email
   })
 }
