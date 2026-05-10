@@ -1,5 +1,4 @@
-# --- Infrastructure Configuration ---
-
+# --- Provider & Authentication ---
 terraform {
   required_providers {
     exoscale = {
@@ -14,13 +13,19 @@ provider "exoscale" {
   secret = var.exoscale_api_secret
 }
 
-# Find the latest Ubuntu 24.04 image
+# --- Data Sources ---
+# Find the latest Ubuntu 26.04 image
 data "exoscale_template" "ubuntu" {
   zone = var.zone
-  name = "Linux Ubuntu 24.04 LTS 64-bit"
+  name = "Linux Ubuntu 26.04 LTS 64-bit"
 }
 
-# Firewall Rules
+# Look up the existing university DNS zone (e.g., biti-fhb.org)
+data "exoscale_domain" "university_zone" {
+  name = var.root_domain
+}
+
+# --- Security & Network ---
 resource "exoscale_security_group" "sg" {
   name        = "monitoring-sg"
   description = "Allows HTTP, HTTPS, and SSH"
@@ -36,48 +41,44 @@ resource "exoscale_security_group_rule" "web" {
   end_port          = each.key
 }
 
-# Compute Instance
+# --- Compute Instance ---
 resource "exoscale_compute_instance" "vm" {
   name               = "monitoring-node"
   zone               = var.zone
   template_id        = data.exoscale_template.ubuntu.id
-  type               = "standard.micro"
-  disk_size          = 20
+  type               = "standard.small"
+  disk_size          = 50
   security_group_ids = [exoscale_security_group.sg.id]
   
-  # Inject variables into cloud-init
+  # Dynamically build the full domains and inject them into cloud-init
   user_data = templatefile("${path.module}/cloud-init.yaml", {
-    stats_domain = var.stats_domain
-    api_domain   = var.api_domain
-    admin_email  = var.admin_email
+    stats_fqdn  = "${var.stats_prefix}.${var.root_domain}"
+    api_fqdn    = "${var.api_prefix}.${var.root_domain}"
+    admin_email = var.admin_email
   })
 }
 
 # --- DNS Automation ---
-
-# Look up the zone dynamically using the root variable
-data "exoscale_domain" "university_zone" {
-  name = var.root_domain
-}
-
-# Create the Stats Subdomain
-resource "exoscale_domain_record" "stats_subdomain" {
+# Creates the A-Record for stats.ggruenwald.biti-fhb.org
+resource "exoscale_domain_record" "stats" {
   domain      = data.exoscale_domain.university_zone.id
-  
-  # Strips the root domain out (e.g., leaves "stats.ggruenwald")
-  name        = replace(var.stats_domain, ".${var.root_domain}", "")
+  name        = var.stats_prefix
   record_type = "A"
   content     = exoscale_compute_instance.vm.public_ip_address
   ttl         = 3600
 }
 
-# Create the API Subdomain
-resource "exoscale_domain_record" "api_subdomain" {
+# Creates the A-Record for api.ggruenwald.biti-fhb.org
+resource "exoscale_domain_record" "api" {
   domain      = data.exoscale_domain.university_zone.id
-  
-  # Strips the root domain out (e.g., leaves "api.ggruenwald")
-  name        = replace(var.api_domain, ".${var.root_domain}", "")
+  name        = var.api_prefix
   record_type = "A"
   content     = exoscale_compute_instance.vm.public_ip_address
   ttl         = 3600
+}
+
+# --- Outputs ---
+output "public_ip" {
+  description = "The public IP of the monitoring server"
+  value       = exoscale_compute_instance.vm.public_ip_address
 }
