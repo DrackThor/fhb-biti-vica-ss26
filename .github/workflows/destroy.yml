@@ -10,12 +10,6 @@ jobs:
       TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
       TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
 
-      # Pulled from plain-text Repository Variables
-      TF_VAR_root_domain: ${{ vars.ROOT_DOMAIN }}
-      TF_VAR_stats_prefix: ${{ vars.STATS_PREFIX }}
-      TF_VAR_api_prefix: ${{ vars.API_PREFIX }}
-      TF_VAR_admin_email: ${{ vars.ADMIN_EMAIL }}
-    
     steps:
       - uses: actions/checkout@v4
       - uses: opentofu/setup-opentofu@v1
