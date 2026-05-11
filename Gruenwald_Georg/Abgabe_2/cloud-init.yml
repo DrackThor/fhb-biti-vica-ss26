@@ -7,6 +7,104 @@ packages:
   - docker-compose-v2
 
 write_files:
+  # 1. Netdata Config: Bypasses cloud login and enables the nodes menu
+  - path: /opt/monitoring/netdata.conf
+    content: |
+      [global]
+        cloud enabled = no
+      [registry]
+        enabled = yes
+        registry to announce = https://${stats_domain}
+        registry hostname = Monitoring-Center
+
+  # 2. Docker Compose: network_mode host is used for performance and simplicity
+  - path: /opt/monitoring/docker-compose.yml
+    content: |
+      services:
+        netdata:
+          image: netdata/netdata:stable
+          container_name: netdata
+          pid: host
+          network_mode: host
+          restart: always
+          cap_add: [SYS_PTRACE, SYS_ADMIN]
+          security_opt: [apparmor:unconfined]
+          volumes:
+            - netdataconfig:/etc/netdata
+            - netdatalib:/var/lib/netdata
+            - /proc:/host/proc:ro
+            - /sys:/host/sys:ro
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+            - /opt/monitoring/netdata.conf:/etc/netdata/netdata.conf:ro
+
+        swagger-ui:
+          image: swaggerapi/swagger-ui
+          container_name: swagger-ui
+          restart: always
+          ports: ["8080:8080"]
+          environment:
+            - API_URL=https://${stats_domain}/netdata-swagger.json
+
+        caddy:
+          image: caddy:2
+          container_name: caddy
+          restart: always
+          network_mode: host
+          volumes:
+            - /etc/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+            - caddy_data:/data
+            - caddy_config:/config
+
+      volumes:
+        netdataconfig:
+        netdatalib:
+        caddy_data:
+        caddy_config:
+
+  # 3. Caddyfile: Global Header Strategy
+  - path: /etc/caddy/Caddyfile
+    content: |
+      {
+          email ${admin_email}
+      }
+
+      ${stats_domain} {
+          # This forces CORS headers and prevents duplicates
+          header {
+              Access-Control-Allow-Origin "*"
+              Access-Control-Allow-Methods "GET, POST, OPTIONS"
+              Access-Control-Allow-Headers "*"
+              defer
+          }
+
+          # Respond immediately to preflight checks
+          @options {
+              method OPTIONS
+          }
+          handle @options {
+              respond 204
+          }
+          
+          handle {
+              reverse_proxy localhost:19999
+          }
+      }
+
+      ${api_domain} {
+          reverse_proxy localhost:8080
+      }
+
+runcmd:
+  - systemctl enable --now docker
+  - cd /opt/monitoring && docker compose up -d#cloud-config
+package_update: true
+package_upgrade: true
+
+packages:
+  - docker.io
+  - docker-compose-v2
+
+write_files:
   # Docker Compose for Netdata, Swagger UI, AND Caddy
   - path: /opt/monitoring/docker-compose.yml
     content: |
