@@ -34,7 +34,7 @@ write_files:
           restart: always
           ports: ["8080:8080"]
           environment:
-            - API_URL=https://${stats_domain}/netdata-swagger.json
+            - API_URL=https://${stats_domain}.${second_level_domain}./netdata-swagger.json
 
         # Caddy Reverse Proxy
         caddy:
@@ -59,25 +59,16 @@ write_files:
   - path: /etc/caddy/Caddyfile
     content: |
       {
-          email ${admin_email}
+          email ${second_level_domain}@${root_domain}second_level_domain
       }
 
       ${stats_domain} {
-          # Intercept only the preflight check and add headers here
-          @options {
-              method OPTIONS
+          # Allow the API Docs domain to fetch the Swagger JSON
+          header {
+              Access-Control-Allow-Origin "https://${api_domain}.${second_level_domain}"
+              Access-Control-Allow-Methods "GET, OPTIONS"
           }
-          handle @options {
-              header Access-Control-Allow-Origin "*"
-              header Access-Control-Allow-Methods "GET, POST, OPTIONS"
-              header Access-Control-Allow-Headers "*"
-              respond 204
-          }
-          
-          # Pass normal traffic to Netdata (Netdata adds its own GET headers)
-          handle {
-              reverse_proxy localhost:19999
-          }
+          reverse_proxy localhost:19999
       }
 
       ${api_domain} {
