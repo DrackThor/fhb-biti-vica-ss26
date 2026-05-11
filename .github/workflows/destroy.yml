@@ -20,8 +20,17 @@ jobs:
       - uses: actions/checkout@v4
       - uses: opentofu/setup-opentofu@v1
 
+      # Retrieve the state file from the last Deploy run
+      - name: Download Terraform State
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: deploy.yml # Tell it exactly which workflow created the artifact
+          name: tofu-state
+          path: ./Gruenwald_Georg/Abgabe_2/ # Must end with a slash!
+          search_artifacts: true
+      
       # Navigate directly into the assignment folder to execute the code
-      - name: Initialize & Apply
+      - name: Initialize & Destroy
         working-directory: ./Gruenwald_Georg/Abgabe_2
         run: |
           tofu init
