@@ -27,7 +27,7 @@ data "exoscale_domain" "university_zone" {
 
 # --- Security & Network ---
 resource "exoscale_security_group" "sg" {
-  name        = "monitoring-sg"
+  name        = "sg-${var.vm_name}"
   description = "Allows HTTP, HTTPS, and SSH"
 }
 
@@ -43,7 +43,7 @@ resource "exoscale_security_group_rule" "web" {
 
 # --- Compute Instance ---
 resource "exoscale_compute_instance" "vm" {
-  name               = "monitoring-node"
+  name               = "vm-${var.vm_name}"
   zone               = var.zone
   template_id        = data.exoscale_template.ubuntu.id
   type               = "standard.small"
@@ -52,9 +52,9 @@ resource "exoscale_compute_instance" "vm" {
   
   # Dynamically build the full domains and inject them into cloud-init
   user_data = templatefile("${path.module}/cloud-init.yml", {
-    stats_domain = "${var.stats_prefix}.${var.root_domain}"
-    api_domain = "${var.api_prefix}.${var.root_domain}"
-    admin_email = var.admin_email
+    stats_domain = "${var.stats_prefix}.${var.second_level_domain}.${var.root_domain}"
+    api_domain = "${var.api_prefix}.${var.second_level_domain}.${var.root_domain}"
+    admin_email = "${var.second_level_domain}@${var.root_domain}"
   })
 }
 
@@ -62,7 +62,7 @@ resource "exoscale_compute_instance" "vm" {
 # Creates the A-Record for stats.ggruenwald.biti-fhb.org
 resource "exoscale_domain_record" "stats" {
   domain      = data.exoscale_domain.university_zone.id
-  name        = var.stats_prefix
+  name        = "${var.stats_prefix}.${var.second_level_domain}"
   record_type = "A"
   content     = exoscale_compute_instance.vm.public_ip_address
   ttl         = 3600
@@ -71,7 +71,7 @@ resource "exoscale_domain_record" "stats" {
 # Creates the A-Record for api.ggruenwald.biti-fhb.org
 resource "exoscale_domain_record" "api" {
   domain      = data.exoscale_domain.university_zone.id
-  name        = var.api_prefix
+  name        = "${var.api_prefix}.${var.second_level_domain}"
   record_type = "A"
   content     = exoscale_compute_instance.vm.public_ip_address
   ttl         = 3600
