@@ -61,23 +61,26 @@ write_files:
       }
 
       ${stats_domain} {
-          # Intercept only the preflight check and add headers here
+         stats.ggruenwald.biti-fhb.org {
+          # Apply CORS globally to EVERY request (overwrites any duplicates from Netdata)
+          header Access-Control-Allow-Origin "*"
+          header Access-Control-Allow-Methods "GET, POST, OPTIONS"
+          header Access-Control-Allow-Headers "*"
+      
+          # Handle the preflight check instantly
           @options {
               method OPTIONS
           }
           handle @options {
-              header Access-Control-Allow-Origin "*"
-              header Access-Control-Allow-Methods "GET, POST, OPTIONS"
-              header Access-Control-Allow-Headers "*"
               respond 204
           }
           
-          # Pass normal traffic to Netdata. NO extra headers here!
+          # 3. Pass normal traffic to Netdata
           handle {
               reverse_proxy localhost:19999
           }
       }
-
+      
       ${api_domain} {
           reverse_proxy localhost:8080
       }
