@@ -2,12 +2,13 @@
 package_update: true
 package_upgrade: true
 
+# 1. Force the system to find Docker even if the internal lists are old
 packages:
   - docker.io
   - docker-compose-v2
 
 write_files:
-  # 1. Netdata Config: Bypasses cloud login and enables the nodes menu
+  # 2. Netdata Config: Kills the login nag and enables the private registry
   - path: /opt/monitoring/netdata.conf
     content: |
       [global]
@@ -17,7 +18,7 @@ write_files:
         registry to announce = https://${stats_domain}
         registry hostname = Monitoring-Center
 
-  # 2. Docker Compose: network_mode host is used for performance and simplicity
+  # 3. Docker Compose: network_mode host ensures no port-mapping headaches
   - path: /opt/monitoring/docker-compose.yml
     content: |
       services:
@@ -61,7 +62,7 @@ write_files:
         caddy_data:
         caddy_config:
 
-  # 3. Caddyfile: Global Header Strategy
+  # 4. Caddyfile: Global Header Strategy with 'defer' to prevent browser panics
   - path: /etc/caddy/Caddyfile
     content: |
       {
@@ -69,7 +70,6 @@ write_files:
       }
 
       ${stats_domain} {
-          # This forces CORS headers and prevents duplicates
           header {
               Access-Control-Allow-Origin "*"
               Access-Control-Allow-Methods "GET, POST, OPTIONS"
@@ -77,7 +77,6 @@ write_files:
               defer
           }
 
-          # Respond immediately to preflight checks
           @options {
               method OPTIONS
           }
@@ -95,91 +94,6 @@ write_files:
       }
 
 runcmd:
-  - systemctl enable --now docker
-  - cd /opt/monitoring && docker compose up -d#cloud-config
-package_update: true
-package_upgrade: true
-
-packages:
-  - docker.io
-  - docker-compose-v2
-
-write_files:
-  # Docker Compose for Netdata, Swagger UI, AND Caddy
-  - path: /opt/monitoring/docker-compose.yml
-    content: |
-      services:
-        # Netdata Monitoring Platform
-        netdata:
-          image: netdata/netdata:stable
-          container_name: netdata
-          pid: host
-          network_mode: host
-          restart: always
-          cap_add: [SYS_PTRACE, SYS_ADMIN]
-          security_opt: [apparmor:unconfined]
-          volumes:
-            - netdataconfig:/etc/netdata
-            - netdatalib:/var/lib/netdata
-            - /proc:/host/proc:ro
-            - /sys:/host/sys:ro
-            - /var/run/docker.sock:/var/run/docker.sock:ro
-
-        # Swagger UI REST API Documentation Tool 
-        swagger-ui:
-          image: swaggerapi/swagger-ui
-          container_name: swagger-ui
-          restart: always
-          ports: ["8080:8080"]
-          environment:
-            - API_URL=https://${stats_domain}/netdata-swagger.json
-
-        # Caddy Reverse Proxy
-        caddy:
-          image: caddy:2
-          container_name: caddy
-          restart: always
-          network_mode: host
-          volumes:
-            - /etc/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-            - caddy_data:/data
-            - caddy_config:/config
-
-      volumes:
-        netdataconfig:
-        netdatalib:
-        caddy_data:
-        caddy_config:
-
-# Caddy Reverse Proxy Configuration
-- path: /etc/caddy/Caddyfile
-  content: |
-    {
-        email ${admin_email}
-    }
-
-    ${stats_domain} {
-        header Access-Control-Allow-Origin "*"
-        header Access-Control-Allow-Methods "GET, POST, OPTIONS"
-        header Access-Control-Allow-Headers "*"
-
-        @options {
-            method OPTIONS
-        }
-        handle @options {
-            respond 204
-        }
-        
-        handle {
-            reverse_proxy localhost:19999
-        }
-    }
-
-    ${api_domain} {
-        reverse_proxy localhost:8080
-    }
-
-runcmd:
-  # Start the entire stack with one command!
+  # 5. The "Safety Kick": Ensure Docker is alive and the stack starts
   - systemctl enable --now docker
   - cd /opt/monitoring && docker compose up -d
