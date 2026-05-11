@@ -2,19 +2,15 @@
 package_update: true
 package_upgrade: true
 
+# Look how much cleaner this is without the Caddy apt dependencies!
 packages:
   - docker.io
   - docker-compose-v2
-  - curl
-  - debian-keyring
-  - debian-archive-keyring
-  - apt-transport-https
 
 write_files:
-  # Docker Compose for Netdata and Swagger UI
+  # Docker Compose for Netdata, Swagger UI, AND Caddy
   - path: /opt/monitoring/docker-compose.yml
     content: |
-      version: '3.8'
       services:
         netdata:
           image: netdata/netdata:stable
@@ -39,11 +35,26 @@ write_files:
           environment:
             - API_URL=https://${stats_domain}/api/v1/swagger.json
 
+        # --- NEW: Containerized Caddy ---
+        caddy:
+          image: caddy:2
+          container_name: caddy
+          restart: always
+          network_mode: host
+          volumes:
+            # Mount the config file we create below into the container
+            - /etc/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+            # Persist Let's Encrypt SSL certificates so we don't hit rate limits on destroy/deploy
+            - caddy_data:/data
+            - caddy_config:/config
+
       volumes:
         netdataconfig:
         netdatalib:
+        caddy_data:
+        caddy_config:
 
-  # Caddy Reverse Proxy with CORS for API Docs
+  # Caddy Reverse Proxy Configuration (Routing logic stays identical)
   - path: /etc/caddy/Caddyfile
     content: |
       {
@@ -64,12 +75,6 @@ write_files:
       }
 
 runcmd:
-  # Install Caddy
-  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
-  - apt-get update && apt-get install -y caddy
-  
-  # Start Containers
+  # Start the entire stack with one command!
   - systemctl enable --now docker
   - cd /opt/monitoring && docker compose up -d
-  - systemctl restart caddy
