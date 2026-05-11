@@ -19,10 +19,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: opentofu/setup-opentofu@v1
-      #
+      
       # Navigate directly into the assignment folder to execute the code
       - name: Initialize & Apply
         working-directory: ./Gruenwald_Georg/Abgabe_2
         run: |
           tofu init
           tofu apply -auto-approve
+
+      # Save the state file
+      - name: Upload Terraform State
+        uses: actions/upload-artifact@v4
+        with:
+          name: tofu-state
+          path: ./Gruenwald_Georg/Abgabe_2/terraform.tfstate
+          retention-days: 5
