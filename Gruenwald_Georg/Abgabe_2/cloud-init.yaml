@@ -39,6 +39,10 @@ write_files:
           environment:
             - API_URL=https://${stats_domain}/api/v1/swagger.json
 
+      volumes:
+        netdataconfig:
+        netdatalib:
+
   # Caddy Reverse Proxy with CORS for API Docs
   - path: /etc/caddy/Caddyfile
     content: |
