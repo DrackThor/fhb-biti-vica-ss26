@@ -34,7 +34,7 @@ write_files:
           restart: always
           ports: ["8080:8080"]
           environment:
-            - API_URL=https://${stats_domain}.${second_level_domain}./netdata-swagger.json
+            - API_URL=https://${stats_domain}/netdata-swagger.json
 
         # Caddy Reverse Proxy
         caddy:
@@ -43,9 +43,7 @@ write_files:
           restart: always
           network_mode: host
           volumes:
-            # Mount the config file we create below into the container
             - /etc/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-            # Persist Let's Encrypt SSL certificates so we don't hit rate limits on destroy/deploy
             - caddy_data:/data
             - caddy_config:/config
 
@@ -55,17 +53,17 @@ write_files:
         caddy_data:
         caddy_config:
 
-  # Caddy Reverse Proxy Configuration (Routing logic stays identical)
+  # Caddy Reverse Proxy Configuration
   - path: /etc/caddy/Caddyfile
     content: |
       {
-          email ${second_level_domain}@${root_domain}second_level_domain
+          email ${admin_email}
       }
 
       ${stats_domain} {
           # Allow the API Docs domain to fetch the Swagger JSON
           header {
-              Access-Control-Allow-Origin "https://${api_domain}.${second_level_domain}"
+              Access-Control-Allow-Origin "https://${api_domain}"
               Access-Control-Allow-Methods "GET, OPTIONS"
           }
           reverse_proxy localhost:19999
