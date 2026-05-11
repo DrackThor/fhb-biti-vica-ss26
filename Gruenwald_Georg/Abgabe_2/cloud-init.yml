@@ -7,10 +7,11 @@ packages:
   - docker-compose-v2
 
 write_files:
-  # 1. Docker Compose Stack
+  # Docker Compose for Netdata, Swagger UI, AND Caddy
   - path: /opt/monitoring/docker-compose.yml
     content: |
       services:
+        # Netdata Monitoring Platform
         netdata:
           image: netdata/netdata:stable
           container_name: netdata
@@ -26,22 +27,25 @@ write_files:
             - /sys:/host/sys:ro
             - /var/run/docker.sock:/var/run/docker.sock:ro
 
+        # Swagger UI REST API Documentation Tool 
         swagger-ui:
           image: swaggerapi/swagger-ui
           container_name: swagger-ui
           restart: always
           ports: ["8080:8080"]
           environment:
-            # Filename and path for the Netdata API spec
-            - API_URL=https://${stats_domain}/netdata-swagger.json
+            - API_URL=https://${stats_domain}/api/v1/swagger.json
 
+        # Caddy Reverse Proxy
         caddy:
           image: caddy:2
           container_name: caddy
           restart: always
           network_mode: host
           volumes:
+            # Mount the config file we create below into the container
             - /etc/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+            # Persist Let's Encrypt SSL certificates so we don't hit rate limits on destroy/deploy
             - caddy_data:/data
             - caddy_config:/config
 
@@ -51,7 +55,7 @@ write_files:
         caddy_data:
         caddy_config:
 
-  # 2. Caddy Reverse Proxy Configuration
+  # Caddy Reverse Proxy Configuration (Routing logic stays identical)
   - path: /etc/caddy/Caddyfile
     content: |
       {
@@ -59,21 +63,12 @@ write_files:
       }
 
       ${stats_domain} {
-          # Intercept CORS preflight checks properly
-          @options {
-              method OPTIONS
+          # Allow the API Docs domain to fetch the Swagger JSON
+          header {
+              Access-Control-Allow-Origin "https://${api_domain}"
+              Access-Control-Allow-Methods "GET, OPTIONS"
           }
-          handle @options {
-              header Access-Control-Allow-Origin "*"
-              header Access-Control-Allow-Methods "GET, POST, OPTIONS"
-              header Access-Control-Allow-Headers "*"
-              respond 204
-          }
-
-          # Route standard traffic to Netdata
-          handle {
-              reverse_proxy localhost:19999
-          }
+          reverse_proxy localhost:19999
       }
 
       ${api_domain} {
@@ -81,6 +76,6 @@ write_files:
       }
 
 runcmd:
-  # Start the entire monitoring stack
+  # Start the entire stack with one command!
   - systemctl enable --now docker
   - cd /opt/monitoring && docker compose up -d
