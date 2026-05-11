@@ -4,7 +4,7 @@ package_upgrade: true
 
 packages:
   - docker.io
-  - docker-compose
+  - docker-compose-v2
   - curl
   - debian-keyring
   - debian-archive-keyring
@@ -71,5 +71,5 @@ runcmd:
   
   # Start Containers
   - systemctl enable --now docker
-  - cd /opt/monitoring && docker-compose up -d
+  - cd /opt/monitoring && docker compose up -d
   - systemctl restart caddy
