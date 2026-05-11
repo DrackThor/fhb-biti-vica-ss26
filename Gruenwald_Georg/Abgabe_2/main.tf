@@ -49,12 +49,12 @@ resource "exoscale_compute_instance" "vm" {
   type               = "standard.small"
   disk_size          = 50
   security_group_ids = [exoscale_security_group.sg.id]
-  
+
   # Dynamically build the full domains and inject them into cloud-init
   user_data = templatefile("${path.module}/cloud-init.yml", {
     stats_domain = "${var.stats_prefix}.${var.second_level_domain}.${var.root_domain}"
-    api_domain = "${var.api_prefix}.${var.second_level_domain}.${var.root_domain}"
-    admin_email = "${var.second_level_domain}@${var.root_domain}"
+    api_domain   = "${var.api_prefix}.${var.second_level_domain}.${var.root_domain}"
+    admin_email  = "${var.second_level_domain}@${var.root_domain}"
   })
 }
 
