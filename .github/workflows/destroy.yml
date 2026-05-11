@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy:
+  destroy:
     runs-on: ubuntu-latest
     env:
       # Securely pulled from the Secrets Vault
