@@ -15,7 +15,7 @@ variable "zone" {
 
 variable "vm_name" {
   type    = string
-  default = "vm-ggruenwald"
+  default = "ggruenwald"
 }
 
 variable "root_domain" {
