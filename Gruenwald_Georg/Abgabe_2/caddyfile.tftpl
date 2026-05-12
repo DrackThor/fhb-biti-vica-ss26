@@ -11,49 +11,55 @@
 # NETDATA DASHBOARD DOMAIN
 # ==========================================
 ${stats_domain} {
-    
+
     # --- Quality of Life ---
-    # Automatically redirect anyone who visits the root domain (/) to the 
-    # modern version 3 interface (/v3), bypassing the legacy landing page.
-    redir / /v3
-
-    # --- Backend Connection & Header Stripping ---
-    # Route all incoming traffic on this domain to the Netdata Docker container
-    # running locally on port 19999.
-    reverse_proxy localhost:19999 {
-        
-        # Ghost Proxy Fix: Netdata rejects external domain names for security reasons.
-        # This rewrites the request to look like it came from "localhost", tricking
-        # Netdata into accepting it and preventing an HTTP 400 Bad Request error.
-        header_up Host localhost
-        
-        # Strip duplicate headers: Netdata's embedded web server sends its own CORS headers.
-        # We delete them here as the traffic passes through Caddy so they don't conflict 
-        # with our global Caddy headers below.
-        header_down -Access-Control-Allow-Origin
-        header_down -Access-Control-Allow-Methods
-        header_down -Access-Control-Allow-Headers
-    }
-
-    # --- Global CORS Policy ---
-    # Set a clean, universal CORS policy for the entire stats domain.
-    # The wildcard (*) allows Swagger UI (running on your API domain) to successfully 
-    # request and read the netdata-swagger.json file without being blocked by the browser.
-    header {
-        Access-Control-Allow-Origin "*"
-        Access-Control-Allow-Methods "GET, POST, OPTIONS"
-        Access-Control-Allow-Headers "*"
-    }
+    # Redirect root to /v3/ (trailing slash is required). Without it, Netdata would
+    # issue its own internal 301 to /v3/ using the rewritten Host header ("localhost"),
+    # causing the browser to navigate to http://localhost/v3/ on the user's own machine.
+    redir / /v3/
 
     # --- Preflight Request Handler ---
-    # Browsers send an empty "OPTIONS" request before fetching data across different 
-    # domains to check if it is safe. This catches those requests and instantly replies 
-    # with a "204 No Content" success code, giving the browser the green light.
+    # Browsers send an OPTIONS request before cross-origin fetches to check permissions.
+    # This must be a separate handle block so it resolves before reverse_proxy catches it.
     @options {
         method OPTIONS
     }
     handle @options {
+        header Access-Control-Allow-Origin "*"
+        header Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        header Access-Control-Allow-Headers "*"
         respond 204
+    }
+
+    # --- Default Handler ---
+    # All non-OPTIONS traffic is proxied to Netdata. Wrapped in handle {} to avoid
+    # routing conflicts with the handle @options block above.
+    handle {
+        # --- Global CORS Policy ---
+        # Set a clean, universal CORS policy for the entire stats domain.
+        # The wildcard (*) allows Swagger UI (running on the API domain) to successfully
+        # request and read the netdata-swagger.json file without being blocked by the browser.
+        header Access-Control-Allow-Origin "*"
+        header Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        header Access-Control-Allow-Headers "*"
+
+        # --- Backend Connection & Header Stripping ---
+        # Route all incoming traffic on this domain to the Netdata Docker container
+        # running locally on port 19999.
+        reverse_proxy localhost:19999 {
+
+            # Ghost Proxy Fix: Netdata rejects external domain names for security reasons.
+            # This rewrites the request to look like it came from "localhost", tricking
+            # Netdata into accepting it and preventing an HTTP 400 Bad Request error.
+            header_up Host localhost
+
+            # Strip duplicate headers: Netdata's embedded web server sends its own CORS headers.
+            # We delete them here as the traffic passes through Caddy so they don't conflict
+            # with our global Caddy headers above.
+            header_down -Access-Control-Allow-Origin
+            header_down -Access-Control-Allow-Methods
+            header_down -Access-Control-Allow-Headers
+        }
     }
 }
 
@@ -61,7 +67,7 @@ ${stats_domain} {
 # SWAGGER UI DOMAIN
 # ==========================================
 ${api_domain} {
-    
+
     # Route all incoming traffic on this domain to the Swagger UI Docker container
     # running locally on port 8080.
     # (Caddy automatically handles the HTTPS certificates for this domain as well).
