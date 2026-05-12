@@ -20,7 +20,35 @@ jobs:
         run: |
           tofu init
           tofu apply -auto-approve
+          
+      - name: Wait for Microservices and SSL
+        shell: bash
+        run: |
+          echo "Waiting for the monitoring dashboard to come online..."
+          
+          # Set a timeout of 10 minutes (600 seconds) so the runner doesn't hang forever if something breaks
+          TIMEOUT=600 
+          ELAPSED=0
+          INTERVAL=15
+          URL="https://stats.ggruenwald.biti-fhb.org"
 
+          while [ $ELAPSED -lt $TIMEOUT ]; do
+            # curl the URL and extract ONLY the HTTP status code
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || echo "000")
+            
+            if [ "$STATUS" -eq 200 ]; then
+              echo "✅ SUCCESS: Server is up, Docker is running, and SSL is valid!"
+              exit 0
+            fi
+            
+            echo "⏳ Current status: $STATUS. SSL/Docker still building... waiting 15 seconds."
+            sleep $INTERVAL
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+
+          echo "❌ ERROR: Timeout reached after 10 minutes. The server did not come online."
+          exit 1
+      
       # Save the state file
       - name: Upload Terraform State
         uses: actions/upload-artifact@v4
