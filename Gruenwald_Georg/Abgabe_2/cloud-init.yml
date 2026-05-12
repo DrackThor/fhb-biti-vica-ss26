@@ -52,13 +52,13 @@ write_files:
       ${indent(6, caddy_config)}
 
 runcmd:
-  # 1. Wait until the Ubuntu background updates release the apt lock
-  - while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 5; done;
+  # 1. Download and run the official Docker installer (handles all apt-locks automatically)
+  - curl -fsSL https://get.docker.com -o get-docker.sh
+  - sh get-docker.sh
   
-  # 2. Force the update and install Docker manually
-  - apt-get update -y
-  - apt-get install -y docker.io docker-compose-v2
-  
-  # 3. Start the stack
+  # 2. Ensure the Docker daemon is fully active before composing
   - systemctl enable --now docker
-  - cd /opt/monitoring && docker compose up -d
+  - sleep 10
+  
+  # 3. Start the stack and explicitly log the output to a file for debugging
+  - cd /opt/monitoring && docker compose up -d > /var/log/docker-compose-startup.log 2>&1
