@@ -1,0 +1,30 @@
+{
+    email ${admin_email}
+}
+
+${stats_domain} {
+    # Bulletproof CORS: Forces headers on every request
+    header {
+        Access-Control-Allow-Origin "*"
+        Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        Access-Control-Allow-Headers "*"
+        defer
+    }
+
+    # Instant Preflight Response
+    @options {
+        method OPTIONS
+    }
+    handle @options {
+        respond 204
+    }
+    
+    # Proxy to Netdata
+    handle {
+        reverse_proxy localhost:19999
+    }
+}
+
+${api_domain} {
+    reverse_proxy localhost:8080
+}
