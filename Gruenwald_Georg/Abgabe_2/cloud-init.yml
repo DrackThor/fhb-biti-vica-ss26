@@ -2,13 +2,13 @@
 package_update: true
 package_upgrade: true
 
-# 1. Force the system to find Docker even if the internal lists are old
+# Force the system to find Docker even if the internal lists are old
 packages:
   - docker.io
   - docker-compose-v2
 
 write_files:
-  # 2. Netdata Config: Kills the login nag and enables the private registry
+  # Netdata Config: Kills the login nag and enables the private registry
   - path: /opt/monitoring/netdata.conf
     content: |
       [global]
@@ -18,7 +18,7 @@ write_files:
         registry to announce = https://${stats_domain}
         registry hostname = Monitoring-Center
 
-  # 3. Docker Compose: network_mode host ensures no port-mapping headaches
+  # Docker Compose: network_mode host ensures no port-mapping headaches
   - path: /opt/monitoring/docker-compose.yml
     content: |
       services:
@@ -62,36 +62,10 @@ write_files:
         caddy_data:
         caddy_config:
 
-  # 4. Caddyfile: Global Header Strategy with 'defer' to prevent browser panics
+  # Caddyfile: Dropped in as a single clean block
   - path: /etc/caddy/Caddyfile
     content: |
-      {
-          email ${admin_email}
-      }
-
-      ${stats_domain} {
-          header {
-              Access-Control-Allow-Origin "*"
-              Access-Control-Allow-Methods "GET, POST, OPTIONS"
-              Access-Control-Allow-Headers "*"
-              defer
-          }
-
-          @options {
-              method OPTIONS
-          }
-          handle @options {
-              respond 204
-          }
-          
-          handle {
-              reverse_proxy localhost:19999
-          }
-      }
-
-      ${api_domain} {
-          reverse_proxy localhost:8080
-      }
+      ${indent(6, caddy_config)}
 
 runcmd:
   # 5. The "Safety Kick": Ensure Docker is alive and the stack starts
