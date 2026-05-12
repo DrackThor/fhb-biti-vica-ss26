@@ -1,81 +1,84 @@
-#cloud-config
-package_update: true
-package_upgrade: true
+# --- Provider & Authentication ---
+terraform {
+  required_providers {
+    exoscale = {
+      source  = "exoscale/exoscale"
+      version = "~> 0.69.0"
+    }
+  }
+}
 
-packages:
-  - docker.io
-  - docker-compose-v2
+provider "exoscale" {
+  key    = var.exoscale_api_key
+  secret = var.exoscale_api_secret
+}
 
-write_files:
-  # Docker Compose for Netdata, Swagger UI, AND Caddy
-  - path: /opt/monitoring/docker-compose.yml
-    content: |
-      services:
-        # Netdata Monitoring Platform
-        netdata:
-          image: netdata/netdata:stable
-          container_name: netdata
-          pid: host
-          network_mode: host
-          restart: always
-          cap_add: [SYS_PTRACE, SYS_ADMIN]
-          security_opt: [apparmor:unconfined]
-          volumes:
-            - netdataconfig:/etc/netdata
-            - netdatalib:/var/lib/netdata
-            - /proc:/host/proc:ro
-            - /sys:/host/sys:ro
-            - /var/run/docker.sock:/var/run/docker.sock:ro
+# --- Data Sources ---
+# Find the latest Ubuntu 26.04 image
+data "exoscale_template" "ubuntu" {
+  zone = var.zone
+  name = "Linux Ubuntu 26.04 LTS 64-bit"
+}
 
-        # Swagger UI REST API Documentation Tool 
-        swagger-ui:
-          image: swaggerapi/swagger-ui
-          container_name: swagger-ui
-          restart: always
-          ports: ["8080:8080"]
-          environment:
-            - API_URL=https://${stats_domain}/api/v1/swagger.json
+# Look up the existing university DNS zone (e.g., biti-fhb.org)
+data "exoscale_domain" "university_zone" {
+  name = var.root_domain
+}
 
-        # Caddy Reverse Proxy
-        caddy:
-          image: caddy:2
-          container_name: caddy
-          restart: always
-          network_mode: host
-          volumes:
-            # Mount the config file we create below into the container
-            - /etc/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-            # Persist Let's Encrypt SSL certificates so we don't hit rate limits on destroy/deploy
-            - caddy_data:/data
-            - caddy_config:/config
+# --- Security & Network ---
+resource "exoscale_security_group" "sg" {
+  name        = "monitoring-sg"
+  description = "Allows HTTP, HTTPS, and SSH"
+}
 
-      volumes:
-        netdataconfig:
-        netdatalib:
-        caddy_data:
-        caddy_config:
+resource "exoscale_security_group_rule" "web" {
+  for_each          = toset(["80", "443", "22"])
+  security_group_id = exoscale_security_group.sg.id
+  type              = "INGRESS"
+  protocol          = "TCP"
+  cidr              = "0.0.0.0/0"
+  start_port        = each.key
+  end_port          = each.key
+}
 
-  # Caddy Reverse Proxy Configuration (Routing logic stays identical)
-  - path: /etc/caddy/Caddyfile
-    content: |
-      {
-          email ${admin_email}
-      }
+# --- Compute Instance ---
+resource "exoscale_compute_instance" "vm" {
+  name               = "monitoring-node"
+  zone               = var.zone
+  template_id        = data.exoscale_template.ubuntu.id
+  type               = "standard.small"
+  disk_size          = 50
+  security_group_ids = [exoscale_security_group.sg.id]
+  
+  # Dynamically build the full domains and inject them into cloud-init
+  user_data = templatefile("${path.module}/cloud-init.yml", {
+    stats_domain = "${var.stats_prefix}.${var.root_domain}"
+    api_domain = "${var.api_prefix}.${var.root_domain}"
+    admin_email = var.admin_email
+  })
+}
 
-      ${stats_domain} {
-          # Allow the API Docs domain to fetch the Swagger JSON
-          header {
-              Access-Control-Allow-Origin "https://${api_domain}"
-              Access-Control-Allow-Methods "GET, OPTIONS"
-          }
-          reverse_proxy localhost:19999
-      }
+# --- DNS Automation ---
+# Creates the A-Record for stats.ggruenwald.biti-fhb.org
+resource "exoscale_domain_record" "stats" {
+  domain      = data.exoscale_domain.university_zone.id
+  name        = var.stats_prefix
+  record_type = "A"
+  content     = exoscale_compute_instance.vm.public_ip_address
+  ttl         = 3600
+}
 
-      ${api_domain} {
-          reverse_proxy localhost:8080
-      }
+# Creates the A-Record for api.ggruenwald.biti-fhb.org
+resource "exoscale_domain_record" "api" {
+  domain      = data.exoscale_domain.university_zone.id
+  name        = var.api_prefix
+  record_type = "A"
+  content     = exoscale_compute_instance.vm.public_ip_address
+  ttl         = 3600
+}
 
-runcmd:
-  # Start the entire stack with one command!
-  - systemctl enable --now docker
-  - cd /opt/monitoring && docker compose up -d
+# --- Outputs ---
+output "public_ip" {
+  description = "The public IP of the monitoring server"
+  value       = exoscale_compute_instance.vm.public_ip_address
+}
