@@ -1,16 +1,29 @@
 {
-  email ${admin_email}
+    email ${admin_email}
 }
 
 ${stats_domain} {
-  # Allow the API Docs domain to fetch the Swagger JSON
-  header {
-      Access-Control-Allow-Origin "https://${api_domain}"
-      Access-Control-Allow-Methods "GET, OPTIONS"
-  }
-  reverse_proxy localhost:19999
+    reverse_proxy localhost:19999 {
+        header_up Host localhost
+        header_down -Access-Control-Allow-Origin
+        header_down -Access-Control-Allow-Methods
+        header_down -Access-Control-Allow-Headers
+    }
+
+    header {
+        Access-Control-Allow-Origin "*"
+        Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        Access-Control-Allow-Headers "*"
+    }
+
+    @options {
+        method OPTIONS
+    }
+    handle @options {
+        respond 204
+    }
 }
 
 ${api_domain} {
-  reverse_proxy localhost:8080
+    reverse_proxy localhost:8080
 }
