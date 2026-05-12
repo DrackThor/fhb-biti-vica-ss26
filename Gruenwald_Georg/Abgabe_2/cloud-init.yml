@@ -2,11 +2,16 @@
 package_update: true
 package_upgrade: true
 
+packages:
+  - docker.io
+  - docker-compose-v2
+
 write_files:
-  # Docker Compose: network_mode host ensures no port-mapping headaches
+  # Docker Compose for Netdata, Swagger UI, AND Caddy
   - path: /opt/monitoring/docker-compose.yml
     content: |
       services:
+        # Netdata Monitoring Platform
         netdata:
           image: netdata/netdata:stable
           container_name: netdata
@@ -22,21 +27,25 @@ write_files:
             - /sys:/host/sys:ro
             - /var/run/docker.sock:/var/run/docker.sock:ro
 
+        # Swagger UI REST API Documentation Tool 
         swagger-ui:
           image: swaggerapi/swagger-ui
           container_name: swagger-ui
           restart: always
           ports: ["8080:8080"]
           environment:
-            - API_URL=https://${stats_domain}/netdata-swagger.json
+            - API_URL=https://${stats_domain}/api/v1/swagger.json
 
+        # Caddy Reverse Proxy
         caddy:
           image: caddy:2
           container_name: caddy
           restart: always
           network_mode: host
           volumes:
+            # Mount the config file we create below into the container
             - /etc/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+            # Persist Let's Encrypt SSL certificates so we don't hit rate limits on destroy/deploy
             - caddy_data:/data
             - caddy_config:/config
 
@@ -46,19 +55,27 @@ write_files:
         caddy_data:
         caddy_config:
 
-  # Caddyfile: Dropped in as a single clean block
+  # Caddy Reverse Proxy Configuration (Routing logic stays identical)
   - path: /etc/caddy/Caddyfile
     content: |
-      ${indent(6, caddy_config)}
+      {
+          email ${admin_email}
+      }
+
+      ${stats_domain} {
+          # Allow the API Docs domain to fetch the Swagger JSON
+          header {
+              Access-Control-Allow-Origin "https://${api_domain}"
+              Access-Control-Allow-Methods "GET, OPTIONS"
+          }
+          reverse_proxy localhost:19999
+      }
+
+      ${api_domain} {
+          reverse_proxy localhost:8080
+      }
 
 runcmd:
-  # 1. Wait until the Ubuntu background updates release the apt lock
-  - while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 5; done;
-  
-  # 2. Force the update and install Docker manually
-  - apt-get update -y
-  - apt-get install -y docker.io docker-compose-v2
-  
-  # 3. Start the stack
+  # Start the entire stack with one command!
   - systemctl enable --now docker
   - cd /opt/monitoring && docker compose up -d
