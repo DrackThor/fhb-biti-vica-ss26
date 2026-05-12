@@ -1,30 +1,16 @@
 {
-    email ${admin_email}
+  email ${admin_email}
 }
 
 ${stats_domain} {
-    # Bulletproof CORS: Forces headers on every request
-    header {
-        Access-Control-Allow-Origin "*"
-        Access-Control-Allow-Methods "GET, POST, OPTIONS"
-        Access-Control-Allow-Headers "*"
-        defer
-    }
-
-    # Instant Preflight Response
-    @options {
-        method OPTIONS
-    }
-    handle @options {
-        respond 204
-    }
-    
-    # Proxy to Netdata
-    handle {
-        reverse_proxy localhost:19999
-    }
+  # Allow the API Docs domain to fetch the Swagger JSON
+  header {
+      Access-Control-Allow-Origin "https://${api_domain}"
+      Access-Control-Allow-Methods "GET, OPTIONS"
+  }
+  reverse_proxy localhost:19999
 }
 
 ${api_domain} {
-    reverse_proxy localhost:8080
+  reverse_proxy localhost:8080
 }
