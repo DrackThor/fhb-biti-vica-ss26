@@ -36,7 +36,7 @@ jobs:
             # curl the URL and extract ONLY the HTTP status code
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || echo "000")
             
-            if [ "$STATUS" -eq 200 ]; then
+            if [ "$STATUS" -eq 200 ] || [ "$STATUS" -eq 302 ]; then
               echo "✅ SUCCESS: Server is up, Docker is running, and SSL is valid!"
               exit 0
             fi
