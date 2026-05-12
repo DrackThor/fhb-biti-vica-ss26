@@ -2,7 +2,25 @@
 package_update: true
 package_upgrade: true
 
+# Installing docker-ce via the packages module runs AFTER package_upgrade
+# finishes, eliminating the apt-lock race condition that broke get-docker.sh.
+packages:
+  - ca-certificates
+  - curl
+  - gnupg
+
 write_files:
+  # Add Docker's official GPG key and repository before the packages module runs.
+  # cloud-init executes write_files → packages → runcmd in that order.
+  - path: /etc/apt/keyrings/docker.asc
+    permissions: "0644"
+    defer: true   # written just before runcmd so the keyring is in place for apt
+
+  - path: /etc/apt/sources.list.d/docker.list
+    content: |
+      deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable
+    permissions: "0644"
+
   # Docker Compose: network_mode host ensures no port-mapping headaches
   - path: /opt/monitoring/docker-compose.yml
     content: |
@@ -52,13 +70,21 @@ write_files:
       ${indent(6, caddy_config)}
 
 runcmd:
-  # 1. Download and run the official Docker installer (handles all apt-locks automatically)
-  - curl -fsSL https://get.docker.com -o get-docker.sh
-  - sh get-docker.sh
-  
-  # 2. Ensure the Docker daemon is fully active before composing
+  # 1. Fetch Docker's GPG key and install Docker Engine + Compose plugin via apt.
+  #    This runs after package_upgrade has released the apt lock, so no race condition.
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  - chmod a+r /etc/apt/keyrings/docker.asc
+  - apt-get update
+  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+  # 2. Enable Docker and wait until the daemon is actually ready to accept commands.
+  #    Polling is reliable; a fixed sleep is not.
   - systemctl enable --now docker
-  - sleep 10
-  
-  # 3. Start the stack and explicitly log the output to a file for debugging
-  - cd /opt/monitoring && docker compose up -d > /var/log/docker-compose-startup.log 2>&1
+  - timeout 60 bash -c 'until docker info > /dev/null 2>&1; do sleep 2; done'
+
+  # 3. Start the stack. set -e ensures the script fails loudly if any step errors,
+  #    making failures visible in /var/log/cloud-init-output.log.
+  - |
+    set -euo pipefail
+    cd /opt/monitoring
+    docker compose up -d 2>&1 | tee /var/log/docker-compose-startup.log
