@@ -54,7 +54,7 @@ resource "exoscale_compute_instance" "vm" {
   user_data = templatefile("${path.module}/cloud-init.yml", {
     stats_domain = "${var.stats_prefix}.${var.second_level_domain}.${var.root_domain}"
     # Inject the entire Caddyfile as a single string
-    caddy_config = templatefile("Caddyfile.tftpl", {
+    caddy_config = templatefile("caddyfile.tftpl", {
       admin_email  = "${var.second_level_domain}@${var.root_domain}"
       stats_domain = "${var.stats_prefix}.${var.second_level_domain}.${var.root_domain}"
       api_domain   = "${var.api_prefix}.${var.second_level_domain}.${var.root_domain}"
