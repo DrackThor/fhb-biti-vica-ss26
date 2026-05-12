@@ -1,84 +1,64 @@
-# --- Provider & Authentication ---
-terraform {
-  required_providers {
-    exoscale = {
-      source  = "exoscale/exoscale"
-      version = "~> 0.69.0"
-    }
-  }
-}
+#cloud-config
+package_update: true
+package_upgrade: true
 
-provider "exoscale" {
-  key    = var.exoscale_api_key
-  secret = var.exoscale_api_secret
-}
+write_files:
+  # Docker Compose: network_mode host ensures no port-mapping headaches
+  - path: /opt/monitoring/docker-compose.yml
+    content: |
+      services:
+        netdata:
+          image: netdata/netdata:stable
+          container_name: netdata
+          pid: host
+          network_mode: host
+          restart: always
+          cap_add: [SYS_PTRACE, SYS_ADMIN]
+          security_opt: [apparmor:unconfined]
+          volumes:
+            - netdataconfig:/etc/netdata
+            - netdatalib:/var/lib/netdata
+            - /proc:/host/proc:ro
+            - /sys:/host/sys:ro
+            - /var/run/docker.sock:/var/run/docker.sock:ro
 
-# --- Data Sources ---
-# Find the latest Ubuntu 26.04 image
-data "exoscale_template" "ubuntu" {
-  zone = var.zone
-  name = "Linux Ubuntu 26.04 LTS 64-bit"
-}
+        swagger-ui:
+          image: swaggerapi/swagger-ui
+          container_name: swagger-ui
+          restart: always
+          ports: ["8080:8080"]
+          environment:
+            - API_URL=https://${stats_domain}/netdata-swagger.json
 
-# Look up the existing university DNS zone (e.g., biti-fhb.org)
-data "exoscale_domain" "university_zone" {
-  name = var.root_domain
-}
+        caddy:
+          image: caddy:2
+          container_name: caddy
+          restart: always
+          network_mode: host
+          volumes:
+            - /etc/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+            - caddy_data:/data
+            - caddy_config:/config
 
-# --- Security & Network ---
-resource "exoscale_security_group" "sg" {
-  name        = "monitoring-sg"
-  description = "Allows HTTP, HTTPS, and SSH"
-}
+      volumes:
+        netdataconfig:
+        netdatalib:
+        caddy_data:
+        caddy_config:
 
-resource "exoscale_security_group_rule" "web" {
-  for_each          = toset(["80", "443", "22"])
-  security_group_id = exoscale_security_group.sg.id
-  type              = "INGRESS"
-  protocol          = "TCP"
-  cidr              = "0.0.0.0/0"
-  start_port        = each.key
-  end_port          = each.key
-}
+  # Caddyfile: Dropped in as a single clean block
+  - path: /etc/caddy/Caddyfile
+    content: |
+      ${indent(6, caddy_config)}
 
-# --- Compute Instance ---
-resource "exoscale_compute_instance" "vm" {
-  name               = "monitoring-node"
-  zone               = var.zone
-  template_id        = data.exoscale_template.ubuntu.id
-  type               = "standard.small"
-  disk_size          = 50
-  security_group_ids = [exoscale_security_group.sg.id]
+runcmd:
+  # 1. Wait until the Ubuntu background updates release the apt lock
+  - while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 5; done;
   
-  # Dynamically build the full domains and inject them into cloud-init
-  user_data = templatefile("${path.module}/cloud-init.yml", {
-    stats_domain = "${var.stats_prefix}.${var.root_domain}"
-    api_domain = "${var.api_prefix}.${var.root_domain}"
-    admin_email = var.admin_email
-  })
-}
-
-# --- DNS Automation ---
-# Creates the A-Record for stats.ggruenwald.biti-fhb.org
-resource "exoscale_domain_record" "stats" {
-  domain      = data.exoscale_domain.university_zone.id
-  name        = var.stats_prefix
-  record_type = "A"
-  content     = exoscale_compute_instance.vm.public_ip_address
-  ttl         = 3600
-}
-
-# Creates the A-Record for api.ggruenwald.biti-fhb.org
-resource "exoscale_domain_record" "api" {
-  domain      = data.exoscale_domain.university_zone.id
-  name        = var.api_prefix
-  record_type = "A"
-  content     = exoscale_compute_instance.vm.public_ip_address
-  ttl         = 3600
-}
-
-# --- Outputs ---
-output "public_ip" {
-  description = "The public IP of the monitoring server"
-  value       = exoscale_compute_instance.vm.public_ip_address
-}
+  # 2. Force the update and install Docker manually
+  - apt-get update -y
+  - apt-get install -y docker.io docker-compose-v2
+  
+  # 3. Start the stack
+  - systemctl enable --now docker
+  - cd /opt/monitoring && docker compose up -d
