@@ -2,6 +2,69 @@
 package_update: true
 package_upgrade: true
 
+write_files:
+  # Docker Compose: network_mode host ensures no port-mapping headaches
+  - path: /opt/monitoring/docker-compose.yml
+    content: |
+      services:
+        netdata:
+          image: netdata/netdata:stable
+          container_name: netdata
+          pid: host
+          network_mode: host
+          restart: always
+          cap_add: [SYS_PTRACE, SYS_ADMIN]
+          security_opt: [apparmor:unconfined]
+          volumes:
+            - netdataconfig:/etc/netdata
+            - netdatalib:/var/lib/netdata
+            - /proc:/host/proc:ro
+            - /sys:/host/sys:ro
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+
+        swagger-ui:
+          image: swaggerapi/swagger-ui
+          container_name: swagger-ui
+          restart: always
+          ports: ["8080:8080"]
+          environment:
+            - API_URL=https://${stats_domain}/netdata-swagger.json
+
+        caddy:
+          image: caddy:2
+          container_name: caddy
+          restart: always
+          network_mode: host
+          volumes:
+            - /etc/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+            - caddy_data:/data
+            - caddy_config:/config
+
+      volumes:
+        netdataconfig:
+        netdatalib:
+        caddy_data:
+        caddy_config:
+
+  # Caddyfile: Dropped in as a single clean block
+  - path: /etc/caddy/Caddyfile
+    content: |
+      ${indent(6, caddy_config)}
+
+runcmd:
+  # 1. Wait until the Ubuntu background updates release the apt lock
+  - while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 5; done;
+  
+  # 2. Force the update and install Docker manually
+  - apt-get update -y
+  - apt-get install -y docker.io docker-compose-v2
+  
+  # 3. Start the stack
+  - systemctl enable --now docker
+  - cd /opt/monitoring && docker compose up -d#cloud-config
+package_update: true
+package_upgrade: true
+
 # Force the system to find Docker even if the internal lists are old
 packages:
   - docker.io
