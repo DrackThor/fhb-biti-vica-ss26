@@ -20,7 +20,16 @@ jobs:
         run: |
           tofu init
           tofu apply -auto-approve
-          
+      
+      # Save the state file
+      - name: Upload Terraform State
+        uses: actions/upload-artifact@v4
+        with:
+          name: tofu-state
+          path: ./Gruenwald_Georg/Abgabe_2/terraform.tfstate
+          retention-days: 5
+
+      # Wait for the software to finish installing
       - name: Wait for Microservices and SSL
         shell: bash
         run: |
@@ -48,11 +57,3 @@ jobs:
 
           echo "❌ ERROR: Timeout reached after 10 minutes. The server did not come online."
           exit 1
-      
-      # Save the state file
-      - name: Upload Terraform State
-        uses: actions/upload-artifact@v4
-        with:
-          name: tofu-state
-          path: ./Gruenwald_Georg/Abgabe_2/terraform.tfstate
-          retention-days: 5
