@@ -48,11 +48,10 @@ jobs:
           TIMEOUT=600 
           ELAPSED=0
           INTERVAL=15
-          URL="https://stats.ggruenwald.biti-fhb.org"
 
           while [ $ELAPSED -lt $TIMEOUT ]; do
             # curl the URL and extract ONLY the HTTP status code
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || echo "000")
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$STATS_URL" || echo "000")
             
             if [ "$STATUS" -eq 200 ] || [ "$STATUS" -eq 302 ]; then
               echo "✅ SUCCESS: Server is up, Docker is running, and SSL is valid!"
