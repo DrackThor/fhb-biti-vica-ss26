@@ -10,10 +10,15 @@ packages:
   - gnupg
 
 write_files:
-  # Registers Docker's official apt repository 
+  # Add Docker's official GPG key and repository before the packages module runs.
+  # cloud-init executes write_files → packages → runcmd in that order.
+  - path: /etc/apt/keyrings/docker.asc
+    permissions: "0644"
+    defer: true   # written just before runcmd so the keyring is in place for apt
+
   - path: /etc/apt/sources.list.d/docker.list
     content: |
-      deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu resolute stable
+      deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable
     permissions: "0644"
 
   # Docker Compose: Dropped in as a single clean block
@@ -29,7 +34,6 @@ write_files:
 runcmd:
   # Fetch Docker's GPG key and install Docker Engine + Compose plugin via apt.
   # This runs after package_upgrade has released the apt lock, so no race condition.
-  - mkdir -p /etc/apt/keyrings
   - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
   - chmod a+r /etc/apt/keyrings/docker.asc
   - apt-get update
