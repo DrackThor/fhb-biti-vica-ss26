@@ -35,7 +35,11 @@ jobs:
         shell: bash
         run: |
           echo "Waiting for the monitoring dashboard to come online..."
-          
+
+          # Dynamically pull the URLs which are defined in variables.tf
+          STATS_URL=$(tofu output -raw stats_url)
+          API_URL=$(tofu output -raw api_url)
+      
           # Set a timeout of 10 minutes (600 seconds) so the runner doesn't hang forever if something breaks
           TIMEOUT=600 
           ELAPSED=0
