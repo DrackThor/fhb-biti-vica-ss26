@@ -10,6 +10,9 @@ jobs:
       TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
       TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
 
+      # Fix for the Node.js 20 deprecation warning
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      
     steps:
       - uses: actions/checkout@v4
       - uses: opentofu/setup-opentofu@v1
