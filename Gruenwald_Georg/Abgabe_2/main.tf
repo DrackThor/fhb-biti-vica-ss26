@@ -1,5 +1,7 @@
 # --- Provider & Authentication ---
 terraform {
+  required_version = ">= 1.6.0"
+
   required_providers {
     exoscale = {
       source  = "exoscale/exoscale"
@@ -31,14 +33,26 @@ resource "exoscale_security_group" "sg" {
   description = "Allows HTTP, HTTPS, and SSH"
 }
 
+# Defines one ingress rule per entry: HTTP/HTTPS for both IPv4 and IPv6, SSH restricted to var.ssh_allowed_cidr.
+locals {
+  sg_rules = {
+    "http-v4"  = { port = 80,  cidr = "0.0.0.0/0" }
+    "https-v4" = { port = 443, cidr = "0.0.0.0/0" }
+    "http-v6"  = { port = 80,  cidr = "::/0" }
+    "https-v6" = { port = 443, cidr = "::/0" }
+    "ssh-v4"   = { port = 22,  cidr = var.ssh_allowed_cidr }
+  }
+}
+
+# Iterates over sg_rules to create one security group rule per entry.
 resource "exoscale_security_group_rule" "web" {
-  for_each          = toset(["80", "443", "22"])
+  for_each          = local.sg_rules
   security_group_id = exoscale_security_group.sg.id
   type              = "INGRESS"
   protocol          = "TCP"
-  cidr              = "0.0.0.0/0"
-  start_port        = each.key
-  end_port          = each.key
+  cidr              = each.value.cidr
+  start_port        = each.value.port
+  end_port          = each.value.port
 }
 
 # --- Compute Instance ---
