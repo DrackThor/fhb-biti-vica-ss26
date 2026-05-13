@@ -92,3 +92,13 @@ output "public_ip" {
   description = "The public IP of the monitoring server"
   value       = exoscale_compute_instance.vm.public_ip_address
 }
+
+output "stats_url" {
+  description = "The direct URL for the Netdata Dashboard"
+  value       = "https://${var.stats_prefix}.${var.second_level_domain}.${var.root_domain}"
+}
+
+output "api_url" {
+  description = "The direct URL for the Swagger API UI"
+  value       = "https://${var.api_prefix}.${var.second_level_domain}.${var.root_domain}"
+}
