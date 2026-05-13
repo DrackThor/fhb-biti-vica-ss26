@@ -36,7 +36,7 @@ services:
     network_mode: host
     environment:
       # Dynamically injected by Terraform to point directly to Netdata's native v1 API schema
-      - 'API_URL=https://${stats_domain}/api/v1/swagger.json'
+      - 'API_URL=https://${stats_domain}/netdata-swagger.json'
       
   # ==========================================
   # CADDY: Reverse Proxy & HTTPS Gateway
