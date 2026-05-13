@@ -21,48 +21,10 @@ write_files:
       deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable
     permissions: "0644"
 
-  # Docker Compose: network_mode host ensures no port-mapping headaches
+  # Docker Compose: Dropped in as a single clean block
   - path: /opt/monitoring/docker-compose.yml
     content: |
-      services:
-        netdata:
-          image: netdata/netdata:stable
-          container_name: netdata
-          pid: host
-          network_mode: host
-          restart: always
-          cap_add: [SYS_PTRACE, SYS_ADMIN]
-          security_opt: [apparmor:unconfined]
-          volumes:
-            - netdataconfig:/etc/netdata
-            - netdatalib:/var/lib/netdata
-            - /proc:/host/proc:ro
-            - /sys:/host/sys:ro
-            - /var/run/docker.sock:/var/run/docker.sock:ro
-
-        swagger-ui:
-          image: swaggerapi/swagger-ui
-          container_name: swagger-ui
-          restart: always
-          ports: ["8080:8080"]
-          environment:
-            - API_URL=https://${stats_domain}/netdata-swagger.json
-
-        caddy:
-          image: caddy:2
-          container_name: caddy
-          restart: always
-          network_mode: host
-          volumes:
-            - /etc/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-            - caddy_data:/data
-            - caddy_config:/config
-
-      volumes:
-        netdataconfig:
-        netdatalib:
-        caddy_data:
-        caddy_config:
+      ${indent(6, compose_config)}
 
   # Caddyfile: Dropped in as a single clean block
   - path: /etc/caddy/Caddyfile
