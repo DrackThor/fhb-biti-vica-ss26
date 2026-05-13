@@ -10,15 +10,10 @@ packages:
   - gnupg
 
 write_files:
-  # Add Docker's official GPG key and repository before the packages module runs.
-  # cloud-init executes write_files → packages → runcmd in that order.
-  - path: /etc/apt/keyrings/docker.asc
-    permissions: "0644"
-    defer: true   # written just before runcmd so the keyring is in place for apt
-
+  # Registers Docker's official apt repository 
   - path: /etc/apt/sources.list.d/docker.list
     content: |
-      deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable
+      deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu resolute stable
     permissions: "0644"
 
   # Docker Compose: Dropped in as a single clean block
@@ -32,20 +27,21 @@ write_files:
       ${indent(6, caddy_config)}
 
 runcmd:
-  # 1. Fetch Docker's GPG key and install Docker Engine + Compose plugin via apt.
-  #    This runs after package_upgrade has released the apt lock, so no race condition.
+  # Fetch Docker's GPG key and install Docker Engine + Compose plugin via apt.
+  # This runs after package_upgrade has released the apt lock, so no race condition.
+  - mkdir -p /etc/apt/keyrings
   - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
   - chmod a+r /etc/apt/keyrings/docker.asc
   - apt-get update
   - apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-
-  # 2. Enable Docker and wait until the daemon is actually ready to accept commands.
-  #    Polling is reliable; a fixed sleep is not.
+  
+  # Enable Docker and wait until the daemon is actually ready to accept commands.
+  # Polling is reliable; a fixed sleep is not.
   - systemctl enable --now docker
   - timeout 60 bash -c 'until docker info > /dev/null 2>&1; do sleep 2; done'
 
-  # 3. Start the stack. set -e ensures the script fails loudly if any step errors,
-  #    making failures visible in /var/log/cloud-init-output.log.
+  # Start the stack. set -e ensures the script fails loudly if any step errors,
+  # making failures visible in /var/log/cloud-init-output.log.
   - |
     set -euo pipefail
     cd /opt/monitoring
