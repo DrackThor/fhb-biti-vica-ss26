@@ -48,6 +48,9 @@ jobs:
             
             if [ "$STATUS" -eq 200 ] || [ "$STATUS" -eq 302 ]; then
               echo "✅ SUCCESS: Server is up, Docker is running, and SSL is valid!"
+              echo "🌐 Your applications are ready! Click on the links below:"
+              echo "📊 Stats Dashboard: $STATS_URL"
+              echo "⚙️ API Swagger UI:  $API_URL"
               exit 0
             fi
             
