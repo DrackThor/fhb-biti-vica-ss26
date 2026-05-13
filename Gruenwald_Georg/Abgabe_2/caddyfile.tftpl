@@ -5,6 +5,8 @@
     # This tells Caddy to automatically provision HTTPS certificates via Let's Encrypt.
     # Providing an email ensures you get expiration or security notices from Let's Encrypt.
     email ${admin_email}
+
+    # Uncomment to use Let's Encrypt's staging CA during testing to avoid hitting production rate limits.
     # acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
 }
 
@@ -26,7 +28,8 @@ ${stats_domain} {
         method OPTIONS
     }
     handle @options {
-        header Access-Control-Allow-Origin "*"
+        # Restricted CORS origin from to the specific API domain
+        header Access-Control-Allow-Origin "https://${api_domain}"
         header Access-Control-Allow-Methods "GET, POST, OPTIONS"
         header Access-Control-Allow-Headers "*"
         respond 204
