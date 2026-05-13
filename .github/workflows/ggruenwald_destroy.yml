@@ -18,7 +18,7 @@ jobs:
       - name: Download Terraform State
         uses: dawidd6/action-download-artifact@v3
         with:
-          workflow: deploy.yml # Tell it exactly which workflow created the artifact
+          workflow: ggruenwald_deploy.yml # Tell it exactly which workflow created the artifact
           name: tofu-state
           path: ./Gruenwald_Georg/Abgabe_2/ # Must end with a slash!
           search_artifacts: true
