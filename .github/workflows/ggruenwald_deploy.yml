@@ -17,12 +17,22 @@ jobs:
       - uses: actions/checkout@v4
       - uses: opentofu/setup-opentofu@v1
       
-      # Navigate directly into the assignment folder to execute the code
-      - name: Initialize & Apply
+     # Initializes providers and validates syntax without touching any real infrastructure.
+      - name: Validate
         working-directory: ./Gruenwald_Georg/Abgabe_2
         run: |
           tofu init
-          tofu apply -auto-approve
+          tofu validate
+
+      # Shows exactly what will be created, changed, or destroyed before any real action is taken.
+      - name: Plan
+        working-directory: ./Gruenwald_Georg/Abgabe_2
+        run: tofu plan
+
+      # Applies the planned changes and provisions the actual infrastructure on Exoscale.
+      - name: Apply
+        working-directory: ./Gruenwald_Georg/Abgabe_2
+        run: tofu apply -auto-approve
       
       # Save the state file
       - name: Upload Terraform State
