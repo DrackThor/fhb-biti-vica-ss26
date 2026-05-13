@@ -53,8 +53,13 @@ resource "exoscale_compute_instance" "vm" {
   # Dynamically build the full domains and inject them into cloud-init
   user_data = templatefile("${path.module}/cloud-init.yml", {
     stats_domain = "${var.stats_prefix}.${var.second_level_domain}.${var.root_domain}"
+
+    # Inject the Docker Compose file as a single string variable
+    compose_config = templatefile("${path.module}/docker-compose.tftpl", {
+      stats_domain = "${var.stats_prefix}.${var.second_level_domain}.${var.root_domain}"
+    })
     
-    # Inject the entire Caddyfile as a single string variable HERE
+    # Inject the entire Caddyfile as a single string variable
     caddy_config = templatefile("${path.module}/caddyfile.tftpl", {
       admin_email  = "${var.second_level_domain}@${var.root_domain}"
       stats_domain = "${var.stats_prefix}.${var.second_level_domain}.${var.root_domain}"
