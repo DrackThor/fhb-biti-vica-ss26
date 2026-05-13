@@ -9,7 +9,10 @@ jobs:
       # Securely pulled from the Secrets Vault
       TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
       TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
-    
+      
+      # Fix for the Node.js 20 deprecation warning
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      
     steps:
       - uses: actions/checkout@v4
       - uses: opentofu/setup-opentofu@v1
@@ -37,8 +40,9 @@ jobs:
           echo "Waiting for the monitoring dashboard to come online..."
 
           # Dynamically pull the URLs which are defined in variables.tf
-          STATS_URL=$(tofu output -raw stats_url)
-          API_URL=$(tofu output -raw api_url)
+          # Force Tofu to read the exact state file path
+          STATS_URL=$(tofu output -state=./Gruenwald_Georg/Abgabe_2/terraform.tfstate -raw stats_url)
+          API_URL=$(tofu output -state=./Gruenwald_Georg/Abgabe_2/terraform.tfstate -raw api_url)
       
           # Set a timeout of 10 minutes (600 seconds) so the runner doesn't hang forever if something breaks
           TIMEOUT=600 
