@@ -1,0 +1,48 @@
+secrets.auto.tfvars
+backend.tfvars
+
+############################
+# Terraform core
+############################
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+############################
+# Terraform plan files
+############################
+*.tfplan
+
+############################
+# CLI configuration
+############################
+.terraform.lock.hcl
+
+############################
+# Local environment files
+############################
+.env
+.env.*
+*.env
+
+############################
+# Sensitive data backups
+############################
+*.backup
+*.bak
+
+############################
+# IDE / OS noise
+############################
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+############################
+# Terraform debug
+############################
+terraform.rc
+terraform.log

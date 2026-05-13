@@ -1,0 +1,6 @@
+username = "Aypee95"
+password = "glpat-d22eI_lGC9eqM0hLUtJPGmM6MQpvOjEKdToyM2hmdQ8.01.170gxeh7d"
+
+address        = "https://gitlab.com/api/v4/projects/82119094/terraform/state/default"
+lock_address   = "https://gitlab.com/api/v4/projects/82119094/terraform/state/default/lock"
+unlock_address = "https://gitlab.com/api/v4/projects/82119094/terraform/state/default/lock"

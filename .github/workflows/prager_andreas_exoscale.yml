@@ -1,0 +1,51 @@
+name: Terraform Exoscale Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "Prager_Andreas/Abgabe_2_260511/terraform/**"
+  pull_request:
+
+jobs:
+  terraform:
+    name: Terraform Plan & Apply
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: Prager_Andreas/Abgabe_2_260511/terraform
+
+    env:
+      TF_HTTP_USERNAME: ${{ secrets.GITLAB_USERNAME }}
+      TF_HTTP_PASSWORD: ${{ secrets.GITLAB_TOKEN }}
+      TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+      TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.15.2
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Format Check
+        run: terraform fmt -check
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+
+      # Apply only on main branch (not PRs)
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main'
+        run: terraform apply -auto-approve tfplan
