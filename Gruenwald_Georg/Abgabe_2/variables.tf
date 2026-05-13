@@ -62,3 +62,17 @@ variable "api_prefix" {
   description = "The specific subdomain prefix that routes traffic to the Swagger UI JSON API."
   default     = "api"
 }
+
+# ==========================================
+# SECURITY
+# ==========================================
+# Restricts which CIDR block can reach SSH (port 22).
+# Defaulting to 0.0.0.0/0 keeps the assignment working from any runner,
+# but in production you would set this to your university or VPN range,
+# e.g. "1.2.3.0/24", to block internet-wide brute-force scanners.
+
+variable "ssh_allowed_cidr" {
+  type        = string
+  description = "CIDR block allowed to reach SSH (port 22). Restrict to your IP/VPN range in production."
+  default     = "0.0.0.0/0"
+}
