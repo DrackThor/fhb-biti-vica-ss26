@@ -68,8 +68,10 @@ resource "exoscale_compute_instance" "vm" {
   user_data = templatefile("${path.module}/cloud-init.yml", {
     stats_domain = "${var.stats_prefix}.${var.second_level_domain}.${var.root_domain}"
 
-    # Inject the new OpenAPI spec
-    openapi_spec = file("${path.module}/openapi.yml")
+    # Inject the OpenAPI spec dynamically
+    openapi_spec = templatefile("${path.module}/openapi.yml", {
+      stats_domain = "${var.stats_prefix}.${var.second_level_domain}.${var.root_domain}"
+    })
 
     # Inject the Docker Compose file as a single string variable
     compose_config = templatefile("${path.module}/docker-compose.tftpl", {
