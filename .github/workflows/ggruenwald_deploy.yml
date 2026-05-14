@@ -83,6 +83,8 @@ jobs:
           while [ $ELAPSED -lt $TIMEOUT ]; do
             # curl the URL and extract ONLY the HTTP status code
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" $CURL_OPTS --resolve "${STATS_DOMAIN}:443:${PUBLIC_IP}" "$STATS_URL" || echo "000")
+
+            echo "DEBUG raw status: '$STATUS'"
             
             if [ "$STATUS" -eq 200 ] || [ "$STATUS" -eq 302 ]; then
               echo "✅ SUCCESS: Server is up, Docker is running, and SSL is valid!"
