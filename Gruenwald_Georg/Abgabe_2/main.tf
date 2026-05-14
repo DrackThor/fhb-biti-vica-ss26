@@ -78,6 +78,7 @@ resource "exoscale_compute_instance" "vm" {
       admin_email  = "${var.second_level_domain}@${var.root_domain}"
       stats_domain = "${var.stats_prefix}.${var.second_level_domain}.${var.root_domain}"
       api_domain   = "${var.api_prefix}.${var.second_level_domain}.${var.root_domain}"
+      acme_ca = var.acme_staging ? local.acme_staging : local.acme_production
     })
   })
 }
