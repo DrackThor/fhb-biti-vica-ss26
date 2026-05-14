@@ -13,8 +13,14 @@ services:
     cap_add:
       - SYS_PTRACE
       - SYS_ADMIN
+    # Disables AppArmor confinement so Netdata can access all host system resources
     security_opt:
       - 'apparmor:unconfined'
+    # Tells Netdata where to find the host's etc directory for OS detection and Docker socket for container monitoring
+    environment:
+    - NETDATA_CLAIM_TOKEN=
+    - DOCKER_HOST=unix:///var/run/docker.sock
+    - HOST_ETC=/host/etc
     volumes:
       # Persistence for Netdata configurations and metrics database
       - 'netdataconfig:/etc/netdata'
@@ -22,6 +28,7 @@ services:
       # Read-only access to host system files for hardware/OS metrics gathering
       - '/proc:/host/proc:ro'
       - '/sys:/host/sys:ro'
+      - '/etc/os-release:/host/etc/os-release:ro'
       # Access to Docker socket to monitor container statistics
       - '/var/run/docker.sock:/var/run/docker.sock:ro'
      
