@@ -1,7 +1,7 @@
 name: Exoscale Apply
 
 # Workflow kann manuell gestartet werden.
-on:
+"on":
   workflow_dispatch:
 
 jobs:
