@@ -27,8 +27,12 @@ paths:
 
   /api/v1/data:
     get:
-      summary: Get Live Hardware Metrics
-      description: Retrieves real-time data powering the main dashboard gauges (CPU, RAM, Disk I/O, Network, and Load). Select a chart from the dropdown to query the live data feed.
+      summary: Get Live Metrics (Host & Containers)
+      description: |
+        Retrieves real-time data. To get container-specific metrics, select a 'cgroup' chart.
+        - **cgroup_netdata**: Metrics for the Netdata container
+        - **cgroup_caddy**: Metrics for the Caddy proxy
+        - **cgroup_swagger-ui**: Metrics for this API dashboard
       tags:
         - Telemetry
       parameters:
@@ -39,24 +43,25 @@ paths:
           schema:
             type: string
             enum:
+              # Host Metrics
               - system.cpu
               - system.ram
-              - system.io
-              - system.net
               - system.load
-              - disk.space
+              # Container Metrics
+              - cgroup_netdata.cpu
+              - cgroup_netdata.mem
+              - cgroup_caddy.cpu
+              - cgroup_caddy.mem
+              - cgroup_swagger-ui.cpu
+              - cgroup_swagger-ui.mem
             default: system.cpu
         - in: query
           name: points
-          required: false
-          description: Number of data points to return (defaults to 1 for the most recent reading).
           schema:
             type: integer
             default: 1
         - in: query
           name: format
-          required: false
-          description: The response format.
           schema:
             type: string
             default: json
