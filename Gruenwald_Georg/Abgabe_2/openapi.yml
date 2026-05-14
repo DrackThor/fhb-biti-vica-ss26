@@ -24,40 +24,14 @@ paths:
         - System Architecture
       responses:
         '200':
-          description: Successful retrieval of system information.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  os_version:
-                    type: string
-                    example: "Ubuntu, 26.04 (Resolute Raccoon)"
-                  architecture:
-                    type: string
-                    example: "x86_64"
-                  kernel:
-                    type: string
-                    example: "Linux, 7.0.0-14-generic"
-                  cpu:
-                    type: string
-                    example: "2.40 GHz (2 Cores)"
-                  memory:
-                    type: string
-                    example: "1.91 GiB RAM"
-                  hard_disk_size:
-                    type: string
-                    example: "50.00 GiB"
-                  timezone:
-                    type: string
-                    example: "Etc/UTC"
+          description: Successful retrieval of system information.         
 
   /api/v1/data:
     get:
       summary: Get Live Hardware Metrics
       description: Retrieves real-time data powering the main dashboard gauges (CPU, RAM, Disk I/O, Network, and Load). Select a chart from the dropdown to query the live data feed.
       tags:
-        - Live Telemetry
+        - Telemetry
       parameters:
         - in: query
           name: chart
@@ -91,35 +65,41 @@ paths:
         '200':
           description: Successful retrieval of metric data.
 
-  /api/v1/containers:
+/api/v1/data:
     get:
-      summary: Get Docker Container Metrics
-      description: Retrieves real-time cgroup telemetry (CPU, RAM, Disk I/O) specifically for the individual Docker containers running on the host machine.
+      summary: Live Telemetry Containers
+      description: |
+        Retrieves real-time data. To get container-specific metrics, select a 'cgroup' chart.
+        - **cgroup_netdata**: Metrics for the Netdata container
+        - **cgroup_caddy**: Metrics for the Caddy proxy
+        - **cgroup_swagger-ui**: Metrics for this API dashboard
       tags:
-        - Container Telemetry
+        - Telemetry
       parameters:
-        - in: query
-          name: container
-          required: true
-          description: The specific Docker container to monitor.
-          schema:
-            type: string
-            enum:
-              - netdata
-              - caddy
-              - swagger-ui
-            default: netdata
         - in: query
           name: chart
           required: true
-          description: The specific metric to query for the selected container.
+          description: The specific Netdata chart to query.
           schema:
             type: string
             enum:
-              - cpu        # Container CPU utilization
-              - ram        # Container Memory usage
-              - disk       # Container Disk I/O
-            default: cpu
+              - cgroup_netdata.cpu
+              - cgroup_netdata.mem
+              - cgroup_caddy.cpu
+              - cgroup_caddy.mem
+              - cgroup_swagger-ui.cpu
+              - cgroup_swagger-ui.mem
+            default: system.cpu
+        - in: query
+          name: points
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: format
+          schema:
+            type: string
+            default: json
       responses:
         '200':
-          description: Successful retrieval of container metric data.
+          description: Successful retrieval of metric data.
