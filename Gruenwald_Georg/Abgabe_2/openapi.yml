@@ -25,50 +25,9 @@ paths:
         '200':
           description: Successful retrieval of system information.
 
-  # FIX 1: Renamed from /api/v1/data to avoid duplicate path conflict.
   /api/v1/data:
     get:
-      summary: Get Live Hardware Metrics
-      description: Retrieves real-time data powering the main dashboard gauges (CPU, RAM, Disk I/O, Network, and Load). Select a chart from the dropdown to query the live data feed.
-      tags:
-        - Telemetry
-      parameters:
-        - in: query
-          name: chart
-          required: true
-          description: The specific Netdata chart to query.
-          schema:
-            type: string
-            enum:
-              - system.cpu
-              - system.ram
-              - system.io
-              - system.net
-              - system.load
-              - disk.space
-            default: system.cpu
-        - in: query
-          name: points
-          required: false
-          description: Number of data points to return (defaults to 1 for the most recent reading).
-          schema:
-            type: integer
-            default: 1
-        - in: query
-          name: format
-          required: false
-          description: The response format.
-          schema:
-            type: string
-            default: json
-      responses:
-        '200':
-          description: Successful retrieval of metric data.
-
-  # FIX 2: Unique path for container metrics + fixed indentation (was at root level, must be under paths).
-  /api/v1/data/containers:
-    get:
-      summary: Live Telemetry Containers
+      summary: Get Live Metrics (Host & Containers)
       description: |
         Retrieves real-time data. To get container-specific metrics, select a 'cgroup' chart.
         - **cgroup_netdata**: Metrics for the Netdata container
@@ -84,13 +43,18 @@ paths:
           schema:
             type: string
             enum:
+              # Host Metrics
+              - system.cpu
+              - system.ram
+              - system.load
+              # Container Metrics (Mapped from your "Containers & VMs" dashboard)
               - cgroup_netdata.cpu
               - cgroup_netdata.mem
               - cgroup_caddy.cpu
               - cgroup_caddy.mem
               - cgroup_swagger-ui.cpu
               - cgroup_swagger-ui.mem
-            default: cgroup_netdata.cpu
+            default: system.cpu
         - in: query
           name: points
           schema:
