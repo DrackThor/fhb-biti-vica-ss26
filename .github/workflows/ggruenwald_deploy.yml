@@ -56,7 +56,16 @@ jobs:
           # Force Tofu to read the exact state file path
           STATS_URL=$(tofu output -state=./Gruenwald_Georg/Abgabe_2/terraform.tfstate -raw stats_url)
           API_URL=$(tofu output -state=./Gruenwald_Georg/Abgabe_2/terraform.tfstate -raw api_url)
-      
+
+          # When using the Let's Encrypt staging CA, the certificate is not trusted
+          # by the system. Setup a insecure skips verification so curl returns a real HTTP
+          # status code instead of 000.
+          CURL_OPTS=""
+          if [ "$TF_VAR_acme_staging" = "true" ]; then
+            CURL_OPTS="--insecure"
+            echo "⚠️ Staging CA active — skipping SSL verification."
+          fi
+          
           # Set a timeout of 10 minutes (600 seconds) so the runner doesn't hang forever if something breaks
           TIMEOUT=600 
           ELAPSED=0
