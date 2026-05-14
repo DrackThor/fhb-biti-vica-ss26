@@ -29,9 +29,9 @@ ${stats_domain} {
         method OPTIONS
     }
     handle @options {
-        # Unified CORS origin: Uses wildcard (*) to perfectly match the main handler below, 
-        # preventing strict browser mismatch errors during preflight checks.
-        header Access-Control-Allow-Origin "*"
+        # STRICT CORS ORIGIN: Limits preflight access exclusively to the Swagger UI domain.
+        # This replaces the insecure wildcard (*) with the dynamic API domain variable.
+        header Access-Control-Allow-Origin "https://${api_domain}"
         header Access-Control-Allow-Methods "GET, POST, OPTIONS"
         header Access-Control-Allow-Headers "*"
         respond 204
@@ -42,10 +42,8 @@ ${stats_domain} {
     # routing conflicts with the handle @options block above.
     handle {
         # --- Global CORS Policy ---
-        # Set a clean, universal CORS policy for the entire stats domain.
-        # The wildcard (*) allows Swagger UI (running on the API domain) to successfully
-        # request and read the metric data without being blocked by the browser.
-        header Access-Control-Allow-Origin "*"
+        # STRICT CORS ORIGIN: Limits data access exclusively to the Swagger UI domain.
+        header Access-Control-Allow-Origin "https://${api_domain}"
         header Access-Control-Allow-Methods "GET, POST, OPTIONS"
         header Access-Control-Allow-Headers "*"
 
