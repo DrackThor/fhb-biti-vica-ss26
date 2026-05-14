@@ -30,20 +30,20 @@ jobs:
 
       # OpenTofu initialisieren.
       - name: Tofu init
-        working-directory: ./Heritage_Juliette/Abgabe_2_260511/terraform
+        working-directory: ./Heritage_Juliette/Abgabe_2_Exoscale_VM/terraform
         run: tofu init
 
       # Terraform/OpenTofu Konfiguration validieren.
       - name: Tofu validate
-        working-directory: ./Heritage_Juliette/Abgabe_2_260511/terraform
+        working-directory: ./Heritage_Juliette/Abgabe_2_Exoscale_VM/terraform
         run: tofu validate
 
       # Infrastruktur planen.
       - name: Tofu plan
-        working-directory: ./Heritage_Juliette/Abgabe_2_260511/terraform
+        working-directory: ./Heritage_Juliette/Abgabe_2_Exoscale_VM/terraform
         run: tofu plan
 
       # Infrastruktur erstellen.
       - name: Tofu apply
-        working-directory: ./Heritage_Juliette/Abgabe_2_260511/terraform
+        working-directory: ./Heritage_Juliette/Abgabe_2_Exoscale_VM/terraform
         run: tofu apply -auto-approve
