@@ -43,7 +43,7 @@ services:
     network_mode: host
     volumes:
       # Mount our custom API spec
-      - '/opt/monitoring/openapi.yml:/usr/share/nginx/html/openapi.yaml:ro'
+      - '/opt/monitoring/openapi.yml:/usr/share/nginx/html/openapi.yml:ro'
     environment:
       # Tell Swagger to load it
       - 'SWAGGER_JSON=/usr/share/nginx/html/openapi.yml'
