@@ -75,9 +75,14 @@ jobs:
           ELAPSED=0
           INTERVAL=15
 
+          # Read the public IP and strip the protocol from the stats URL to use with --resolve,
+          # bypassing DNS propagation delays on the GitHub Actions runner.
+          PUBLIC_IP=$(tofu output -state=$TF_STATE_PATH -raw public_ip)
+          STATS_DOMAIN=$(echo "$STATS_URL" | sed 's|https://||')
+          
           while [ $ELAPSED -lt $TIMEOUT ]; do
             # curl the URL and extract ONLY the HTTP status code
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" $CURL_OPTS "$STATS_URL" || echo "000")
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" $CURL_OPTS --resolve "${STATS_DOMAIN}:443:${PUBLIC_IP}" "$STATS_URL" || echo "000")
             
             if [ "$STATUS" -eq 200 ] || [ "$STATUS" -eq 302 ]; then
               echo "✅ SUCCESS: Server is up, Docker is running, and SSL is valid!"
