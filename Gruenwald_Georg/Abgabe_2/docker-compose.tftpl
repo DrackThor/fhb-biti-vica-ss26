@@ -41,9 +41,12 @@ services:
     restart: always
     # Runs on the host network so Caddy can cleanly proxy to it without Docker Bridge firewall issues
     network_mode: host
+    volumes:
+      # Mount our custom API spec
+      - '/opt/monitoring/openapi.yml:/usr/share/nginx/html/openapi.yaml:ro'
     environment:
-      # Dynamically injected by Terraform to point directly to Netdata's native v1 API schema
-      - 'API_URL=https://${stats_domain}/netdata-swagger.json'
+      # Tell Swagger to load it
+      - 'SWAGGER_JSON=/usr/share/nginx/html/openapi.yml'
       
   # ==========================================
   # CADDY: Reverse Proxy & HTTPS Gateway
