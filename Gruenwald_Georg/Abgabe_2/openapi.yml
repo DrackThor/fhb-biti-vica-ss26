@@ -47,7 +47,7 @@ paths:
               - system.cpu
               - system.ram
               - system.load
-              # Container Metrics (Mapped from your "Containers & VMs" dashboard)
+              # Container Metrics
               - cgroup_netdata.cpu
               - cgroup_netdata.mem
               - cgroup_caddy.cpu
