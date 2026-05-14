@@ -10,9 +10,9 @@ info:
   contact:
     name: Georg Grünwald
 
-# Using a relative URL ensures Swagger UI automatically prepends your current domain (e.g., https://api...)
+# Using a dynamic URL injected by Terraform to point to the Netdata backend
 servers:
-  - url: /
+  - url: https://${stats_domain}
     description: Live Exoscale VM Metrics
 
 paths:
