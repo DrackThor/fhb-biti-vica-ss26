@@ -6,8 +6,9 @@
     # Providing an email ensures you get expiration or security notices from Let's Encrypt.
     email ${admin_email}
 
-    # Uncomment to use Let's Encrypt's staging CA during testing to avoid hitting production rate limits.
-    acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+    # Dynamically injected by Terraform and controlled via the acme_staging variable in variables.tf.
+    # Resolves to the staging CA when testing and the production CA for live deployments.
+    acme_ca ${acme_ca}
 }
 
 # ==========================================
