@@ -54,5 +54,3 @@ resource "exoscale_compute_instance" "vm" {
     exoscale_security_group.vm_sg.id
   ]
 }
-  cidr = "0.0.0.0/0"
-}
