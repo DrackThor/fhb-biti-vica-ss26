@@ -30,7 +30,7 @@ variable "zone" {
 variable "vm_name" {
   type        = string
   description = "The base identifier used to dynamically name the virtual machine and its attached security groups."
-  default     = "ggruenwald"
+  default     = "gruenwald"
 }
 
 # ==========================================
