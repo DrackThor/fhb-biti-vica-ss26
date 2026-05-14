@@ -52,6 +52,8 @@ resource "exoscale_compute_instance" "vm" {
 
   template_id = data.exoscale_template.ubuntu.id
   type        = var.instance_type
+  # Cloud-Init automatisch laden.
+  user_data = file("${path.module}/cloud-init.yaml.tftpl")
 
   disk_size = 20
   ipv6      = false
