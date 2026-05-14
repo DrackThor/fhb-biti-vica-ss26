@@ -1,34 +1,24 @@
 # Security Group für die VM.
 resource "exoscale_security_group" "vm_sg" {
-
-  # Name der Security Group.
   name = "${var.instance_name}-sg"
 }
 
 # HTTP-Zugriff erlauben.
 resource "exoscale_security_group_rule" "http_ingress" {
-
-  # Zugehörige Security Group.
   security_group_id = exoscale_security_group.vm_sg.id
+  type              = "INGRESS"
 
-  # Eingehender Traffic.
-  type = "INGRESS"
-
-  # TCP Port 80.
   protocol   = "TCP"
   start_port = 80
   end_port   = 80
 
-  # Zugriff aus dem gesamten Internet.
   cidr = "0.0.0.0/0"
 }
 
 # HTTPS-Zugriff erlauben.
 resource "exoscale_security_group_rule" "https_ingress" {
-
   security_group_id = exoscale_security_group.vm_sg.id
-
-  type = "INGRESS"
+  type              = "INGRESS"
 
   protocol   = "TCP"
   start_port = 443
@@ -38,39 +28,28 @@ resource "exoscale_security_group_rule" "https_ingress" {
 }
 
 # SSH-Zugriff erlauben.
-# Wird für Debugging und Administration benötigt.
 resource "exoscale_security_group_rule" "ssh_ingress" {
-
   security_group_id = exoscale_security_group.vm_sg.id
-
-  type = "INGRESS"
+  type              = "INGRESS"
 
   protocol   = "TCP"
   start_port = 22
   end_port   = 22
 
+  cidr = "0.0.0.0/0"
+}
+
 # Exoscale VM erstellen.
 resource "exoscale_compute_instance" "vm" {
-
-  # Zone der VM.
   zone = var.zone
-
-  # Name der VM.
   name = var.instance_name
 
-  # Ubuntu Template.
   template = var.instance_template
+  type     = var.instance_type
 
-  # VM-Größe.
-  type = var.instance_type
-
-  # Root-Disk-Größe.
   disk_size = 20
+  ipv6      = false
 
-  # Öffentliche IP automatisch zuweisen.
-  ipv6 = false
-
-  # Security Group zuweisen.
   security_group_ids = [
     exoscale_security_group.vm_sg.id
   ]
