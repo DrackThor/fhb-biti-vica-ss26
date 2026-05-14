@@ -54,7 +54,7 @@ variable "second_level_domain" {
 variable "stats_prefix" {
   type        = string
   description = "The specific subdomain prefix that routes traffic to the Netdata HTML Dashboard."
-  default     = "stats"
+  default     = "dashboard"
 }
 
 variable "api_prefix" {
