@@ -27,26 +27,31 @@ paths:
 
   /api/v1/data:
     get:
-      summary: Get Live Metrics (Host & Containers)
+      summary: Get Live Telemetry (Host & Containers)
       description: |
-        Retrieves real-time data. To get container-specific metrics, select a 'cgroup' chart.
-        - **cgroup_netdata**: Metrics for the Netdata container
-        - **cgroup_caddy**: Metrics for the Caddy proxy
-        - **cgroup_swagger-ui**: Metrics for this API dashboard
+        Netdata routes all metric queries through this single `/data` endpoint. Select a specific chart below to isolate host or container metrics.
+        
+        **Host System Charts:**
+        * `system.cpu` - Total VM CPU Usage
+        * `system.ram` - Total VM RAM Usage
+        
+        **Docker Container Charts (cgroups):**
+        * `cgroup_netdata.cpu` / `.mem`
+        * `cgroup_caddy.cpu` / `.mem`
+        * `cgroup_swagger-ui.cpu` / `.mem`
       tags:
-        - Telemetry
+        - Live Telemetry
       parameters:
         - in: query
           name: chart
           required: true
-          description: The specific Netdata chart to query.
+          description: The specific metric ID to pull from the backend.
           schema:
             type: string
             enum:
               # Host Metrics
               - system.cpu
               - system.ram
-              - system.load
               # Container Metrics
               - cgroup_netdata.cpu
               - cgroup_netdata.mem
@@ -56,12 +61,22 @@ paths:
               - cgroup_swagger-ui.mem
             default: system.cpu
         - in: query
+          name: after
+          required: false
+          description: The time window to query. Use -1 to fetch the absolute latest live metric from the past second.
+          schema:
+            type: integer
+            default: -1
+        - in: query
           name: points
+          required: false
+          description: Number of data points to return.
           schema:
             type: integer
             default: 1
         - in: query
           name: format
+          required: false
           schema:
             type: string
             default: json
