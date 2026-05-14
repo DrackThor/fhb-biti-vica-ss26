@@ -1,3 +1,9 @@
+# Ubuntu-Template anhand des Namens in der Exoscale-Zone suchen.
+data "exoscale_template" "ubuntu" {
+  zone = var.zone
+  name = var.instance_template
+}
+
 # Security Group für die VM.
 resource "exoscale_security_group" "vm_sg" {
   name = "${var.instance_name}-sg"
@@ -44,8 +50,8 @@ resource "exoscale_compute_instance" "vm" {
   zone = var.zone
   name = var.instance_name
 
-  template = var.instance_template
-  type     = var.instance_type
+  template_id = data.exoscale_template.ubuntu.id
+  type        = var.instance_type
 
   disk_size = 20
   ipv6      = false
