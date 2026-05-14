@@ -43,10 +43,10 @@ services:
     network_mode: host
     volumes:
       # Mount our custom API spec
-      - '/opt/monitoring/openapi.yml:/usr/share/nginx/html/openapi.yml:ro'
+      - '/opt/monitoring/openapi.yml:/openapi/openapi.yml:ro'
     environment:
       # Tell Swagger to load it
-      - 'SWAGGER_JSON=/usr/share/nginx/html/openapi.yml'
+      - SWAGGER_JSON=/openapi/openapi.yml
       
   # ==========================================
   # CADDY: Reverse Proxy & HTTPS Gateway
