@@ -50,8 +50,12 @@ paths:
             type: string
             enum:
               # Host Metrics
-              - system.cpu
-              - system.ram
+              - system.cpu       # Avg CPU per Node
+              - system.ram       # Avg Used RAM per Node
+              - system.io        # Total Disk Reads/Writes
+              - system.net       # Total Network Inbound/Outbound
+              - system.load      # Avg System Load (1 min)
+              - disk.space       # Powers Disk Usage capacity metrics
               # Container Metrics
               - cgroup_netdata.cpu
               - cgroup_netdata.mem
