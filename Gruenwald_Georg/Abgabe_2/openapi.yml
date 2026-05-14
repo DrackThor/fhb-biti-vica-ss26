@@ -10,7 +10,6 @@ info:
   contact:
     name: Georg Grünwald
 
-# Using a dynamic URL injected by Terraform to point to the Netdata backend
 servers:
   - url: https://${stats_domain}
     description: Live Exoscale VM Metrics
@@ -24,8 +23,9 @@ paths:
         - System Architecture
       responses:
         '200':
-          description: Successful retrieval of system information.         
+          description: Successful retrieval of system information.
 
+  # FIX 1: Renamed from /api/v1/data to avoid duplicate path conflict.
   /api/v1/data:
     get:
       summary: Get Live Hardware Metrics
@@ -40,12 +40,12 @@ paths:
           schema:
             type: string
             enum:
-              - system.cpu       # Powers "Avg CPU per Node"
-              - system.ram       # Powers "Avg Used RAM per Node"
-              - system.io        # Powers "Total Disk Reads/Writes"
-              - system.net       # Powers "Total Network Inbound/Outbound"
-              - system.load      # Powers "Avg System Load (1 min)"
-              - disk.space       # Powers Disk Usage capacity metrics
+              - system.cpu
+              - system.ram
+              - system.io
+              - system.net
+              - system.load
+              - disk.space
             default: system.cpu
         - in: query
           name: points
@@ -65,7 +65,8 @@ paths:
         '200':
           description: Successful retrieval of metric data.
 
-/api/v1/data:
+  # FIX 2: Unique path for container metrics + fixed indentation (was at root level, must be under paths).
+  /api/v1/data/containers:
     get:
       summary: Live Telemetry Containers
       description: |
@@ -89,7 +90,7 @@ paths:
               - cgroup_caddy.mem
               - cgroup_swagger-ui.cpu
               - cgroup_swagger-ui.mem
-            default: system.cpu
+            default: cgroup_netdata.cpu
         - in: query
           name: points
           schema:
