@@ -9,6 +9,9 @@ jobs:
       # Securely pulled from the Secrets Vault
       TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
       TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # Falls back to false if the GitHub variable is empty or does not exist.
+      TF_VAR_acme_staging: ${{ vars.ACME_STAGING || 'false' }}
       
       # Fix for the Node.js 20 deprecation warning
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
