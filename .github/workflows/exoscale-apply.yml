@@ -1,0 +1,49 @@
+name: Exoscale Apply
+
+# Workflow kann manuell gestartet werden.
+"on":
+  workflow_dispatch:
+  push:
+    branches:
+      - patch-1
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+
+    # Umgebungsvariablen aus GitHub Secrets.
+    env:
+      TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+      TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+
+    steps:
+
+      # Repository herunterladen.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # OpenTofu installieren.
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: latest
+
+      # OpenTofu initialisieren.
+      - name: Tofu init
+        working-directory: ./Heritage_Juliette/Abgabe_2_Exoscale_VM/terraform
+        run: tofu init
+
+      # Terraform/OpenTofu Konfiguration validieren.
+      - name: Tofu validate
+        working-directory: ./Heritage_Juliette/Abgabe_2_Exoscale_VM/terraform
+        run: tofu validate
+
+      # Infrastruktur planen.
+      - name: Tofu plan
+        working-directory: ./Heritage_Juliette/Abgabe_2_Exoscale_VM/terraform
+        run: tofu plan
+
+      # Infrastruktur erstellen.
+      - name: Tofu apply
+        working-directory: ./Heritage_Juliette/Abgabe_2_Exoscale_VM/terraform
+        run: tofu apply -auto-approve

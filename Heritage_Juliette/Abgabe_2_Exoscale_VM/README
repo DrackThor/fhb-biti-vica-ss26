@@ -1,0 +1,142 @@
+# Abgabe 2 – Exoscale VM mit Terraform/OpenTofu und Cloud-Init
+
+## Ziel der Lösung
+
+Ziel dieser Lösung ist die vollständig automatisierte Erstellung einer Exoscale VM mittels Terraform/OpenTofu und GitHub Actions.
+
+Die VM stellt einen HTTP-Endpunkt bereit, welcher technische Informationen über die laufende VM anzeigt.
+
+Zusätzlich wird ein JSON-Endpunkt bereitgestellt.
+
+---
+
+# Verwendete Technologien
+
+- Exoscale
+- Terraform / OpenTofu
+- GitHub Actions
+- Cloud-Init
+- Ubuntu 24.04 LTS
+- nginx
+
+---
+
+# Aufbau der Lösung
+
+## Terraform/OpenTofu
+
+Terraform/OpenTofu erstellt automatisch:
+
+- die Exoscale VM
+- eine Security Group
+- HTTP-, HTTPS- und SSH-Regeln
+
+Die gesamte Infrastruktur wird automatisiert über GitHub Actions erstellt und gelöscht.
+
+---
+
+## Cloud-Init
+
+Cloud-Init konfiguriert das Betriebssystem automatisch beim Start der VM.
+
+Dabei werden:
+
+- nginx installiert
+- eine HTML-Webseite erstellt
+- ein JSON-Endpunkt erstellt
+- technische VM-Informationen gesammelt
+
+---
+
+# Endpunkte
+
+## HTML-Webseite
+
+```text
+http://<IP-Adresse>/
+```
+
+Zeigt technische Informationen der VM als HTML-Seite an.
+
+---
+
+## JSON-API
+
+```text
+http://<IP-Adresse>/vm.json
+```
+
+Liefert technische Informationen im JSON-Format.
+
+---
+
+# Dargestellte Informationen
+
+Die Lösung zeigt unter anderem:
+
+- Hostname
+- IP-Adresse
+- Kernel-Version
+- Architektur
+- Arbeitsspeicher
+- CPU-Kerne
+
+---
+
+# GitHub Workflows
+
+## Exoscale Apply
+
+Workflow-Datei:
+
+```text
+.github/workflows/exoscale-apply.yml
+```
+
+Erstellt automatisch:
+
+- VM
+- Security Group
+- Netzwerkregeln
+
+---
+
+## Exoscale Destroy
+
+Workflow-Datei:
+
+```text
+.github/workflows/exoscale-destroy.yml
+```
+
+Löscht automatisch sämtliche erzeugte Infrastruktur.
+
+---
+
+# Verwendung
+
+## Infrastruktur erstellen
+
+GitHub Actions Workflow:
+
+```text
+Exoscale Apply
+```
+
+---
+
+## Infrastruktur löschen
+
+GitHub Actions Workflow:
+
+```text
+Exoscale Destroy
+```
+
+---
+
+# Besonderheiten
+
+Die gesamte Betriebssystemkonfiguration erfolgt automatisiert über Cloud-Init.
+
+Es sind keine manuellen Konfigurationsschritte auf der VM notwendig.
