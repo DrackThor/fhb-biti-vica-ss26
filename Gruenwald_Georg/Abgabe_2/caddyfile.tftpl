@@ -17,8 +17,8 @@
 ${stats_domain} {
 
     # --- Quality of Life ---
-    # Redirect root to /v3/ (trailing slash is required). Without it, Netdata would
-    # issue its own internal 301 to /v3/ using the rewritten Host header ("localhost"),
+    # Redirect root to /v3/ (trailing slash is required).
+    # Without it, Netdata would issue its own internal 301 to /v3/ using the rewritten Host header ("localhost"),
     # causing the browser to navigate to http://localhost/v3/ on the user's own machine.
     redir / /v3/
 
@@ -29,8 +29,9 @@ ${stats_domain} {
         method OPTIONS
     }
     handle @options {
-        # Restricted CORS origin from to the specific API domain
-        header Access-Control-Allow-Origin "https://${api_domain}"
+        # Unified CORS origin: Uses wildcard (*) to perfectly match the main handler below, 
+        # preventing strict browser mismatch errors during preflight checks.
+        header Access-Control-Allow-Origin "*"
         header Access-Control-Allow-Methods "GET, POST, OPTIONS"
         header Access-Control-Allow-Headers "*"
         respond 204
@@ -43,7 +44,7 @@ ${stats_domain} {
         # --- Global CORS Policy ---
         # Set a clean, universal CORS policy for the entire stats domain.
         # The wildcard (*) allows Swagger UI (running on the API domain) to successfully
-        # request and read the netdata-swagger.json file without being blocked by the browser.
+        # request and read the metric data without being blocked by the browser.
         header Access-Control-Allow-Origin "*"
         header Access-Control-Allow-Methods "GET, POST, OPTIONS"
         header Access-Control-Allow-Headers "*"
