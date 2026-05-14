@@ -1,0 +1,102 @@
+
+#cloud-config
+package_update: true
+package_upgrade: false
+
+packages:
+  - nginx
+
+users:
+  - default
+  - name: tux
+    groups: sudo
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKiXFY9ZTm+Q7x/vYvMh1J55EvUTT9lgxyxbVcUEriCv dominik_1986@gmx.at
+
+
+
+write_files:
+  - path: /tmp/index.html
+    content: |
+      <!DOCTYPE html>
+      <html>
+      <body>
+        <h1>HTTP Webserver erfolgreich bereitgestellt</h1>
+        <p>JSON-Endpunkt: <a href="/api">/api</a></p>
+      </body>
+      </html>
+
+  - path: /etc/nginx/sites-available/meine-website
+    content: |
+      server {
+          listen 80;
+          listen [::]:80;
+
+          server_name _;
+
+          root /var/www/meine-website/html;
+          index index.html;
+
+          location / {
+              try_files $uri $uri/ =404;
+          }
+
+          location /api {
+              alias /var/www/meine-website/html/api.json;
+              default_type application/json;
+              try_files $uri =404;
+          }
+      }
+
+runcmd:
+ # Create website directory
+  - mkdir -p /var/www/meine-website/html
+ # Move the index.html file to the website directory (index.html is created before in the write_files section)
+  - mv /tmp/index.html /var/www/meine-website/html/index.html
+
+  - |
+    PUBLIC_IP=$(curl -s ifconfig.me || echo "unknown")
+    PRIVATE_IP=$(hostname -I | awk '{print $1}')
+    HOSTNAME=$(hostname)
+    KERNEL=$(uname -r)
+    MEMORY=$(free -m | awk '/Mem:/ {print $2 " MB"}')
+    DISK=$(df -h / | awk 'NR==2 {print $2}')
+    FILESYSTEM=$(df -T / | awk 'NR==2 {print $2}')
+    VIRT_FEATURES=$(lscpu | grep "Virtualization:" | awk -F ':' '{print $2}' | xargs)
+    HYPERVISOR_VENDOR=$(lscpu | grep "Hypervisor vendor:" | awk -F ':' '{print $2}' | xargs)
+    VIRTUALIZATION_TYPE=$(lscpu | grep "Virtualization type:" | awk -F ':' '{print $2}' | xargs)
+
+    cat > /var/www/meine-website/html/api.json <<EOF
+    {
+      "hostname": "$HOSTNAME",
+      "public_ip": "$PUBLIC_IP",
+      "private_ip": "$PRIVATE_IP",
+      "kernel": "$KERNEL",
+      "memory": "$MEMORY",
+      "disk": "$DISK",
+      "filesystem": "$FILESYSTEM",
+      "webserver": "nginx",
+      "virtualization": "VT-x",
+      "hypervisor_vendor": "KVM",
+      "virtualization_type": "full",
+      "webserver": "nginx",
+      "configured_by": "cloud-init"
+    }
+    EOF
+
+ # Set ownership for the website directory and files to www-data (nginx user)   
+  - chown -R www-data:www-data /var/www/meine-website
+ # Set permissions for the website directory and files
+  - chmod -R 755 /var/www/meine-website
+ # Remove default nginx configuration and enable the new website configuration for no conflicts
+  - rm -f /etc/nginx/sites-enabled/default
+ # Create symbolic link to enable the new website configuration
+  - ln -sf /etc/nginx/sites-available/meine-website /etc/nginx/sites-enabled/meine-website
+ # Test config
+  - nginx -t
+ # Enable nginx
+  - systemctl enable nginx
+ # Reload nginx to apply the new configuration
+  - systemctl reload nginx
