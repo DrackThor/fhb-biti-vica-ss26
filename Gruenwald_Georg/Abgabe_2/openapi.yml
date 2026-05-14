@@ -19,7 +19,7 @@ paths:
   /api/v1/info:
     get:
       summary: Get Host System Details
-      description: Returns static information about the VM, including the Kernel, Operating System, Architecture, and Hypervisor type.
+      description: Returns static hardware and operating system information about the underlying virtual machine.
       tags:
         - System Architecture
       responses:
@@ -30,32 +30,32 @@ paths:
               schema:
                 type: object
                 properties:
-                  version:
-                    type: string
-                    example: "netdata v1.40.0"
-                  os_name:
-                    type: string
-                    example: "Ubuntu"
                   os_version:
                     type: string
-                    example: "26.04 LTS"
-                  kernel_name:
-                    type: string
-                    example: "Linux"
-                  kernel_version:
-                    type: string
-                    example: "6.8.0-xx-generic"
+                    example: "Ubuntu, 26.04 (Resolute Raccoon)"
                   architecture:
                     type: string
                     example: "x86_64"
-                  virtualization:
+                  kernel:
                     type: string
-                    example: "kvm"
+                    example: "Linux, 7.0.0-14-generic"
+                  cpu:
+                    type: string
+                    example: "2.40 GHz (2 Cores)"
+                  memory:
+                    type: string
+                    example: "1.91 GiB RAM"
+                  hard_disk_size:
+                    type: string
+                    example: "50.00 GiB"
+                  timezone:
+                    type: string
+                    example: "Etc/UTC"
 
   /api/v1/data:
     get:
       summary: Get Live Hardware Metrics
-      description: Retrieves real-time data for specific hardware components (CPU, RAM, Disk). Use the dropdown to select the specific chart.
+      description: Retrieves real-time data powering the main dashboard gauges (CPU, RAM, Disk I/O, Network, and Load). Select a chart from the dropdown to query the live data feed.
       tags:
         - Live Telemetry
       parameters:
@@ -66,11 +66,13 @@ paths:
           schema:
             type: string
             enum:
-              - system.cpu       # Total CPU utilization
-              - system.ram       # Memory usage
-              - disk.space       # Storage filesystem usage
-              - system.ipv4      # Network traffic
-            default: system.ram
+              - system.cpu       # Powers "Avg CPU per Node"
+              - system.ram       # Powers "Avg Used RAM per Node"
+              - system.io        # Powers "Total Disk Reads/Writes"
+              - system.net       # Powers "Total Network Inbound/Outbound"
+              - system.load      # Powers "Avg System Load (1 min)"
+              - disk.space       # Powers Disk Usage capacity metrics
+            default: system.cpu
         - in: query
           name: points
           required: false
