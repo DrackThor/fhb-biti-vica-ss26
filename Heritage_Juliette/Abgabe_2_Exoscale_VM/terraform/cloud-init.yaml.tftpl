@@ -1,1 +1,27 @@
+#cloud-config
 
+package_update: true
+package_upgrade: true
+
+packages:
+  - nginx
+
+write_files:
+  - path: /var/www/html/index.html
+    permissions: '0644'
+    owner: root:root
+    content: |
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>VM Information</title>
+      </head>
+      <body>
+        <h1>Exoscale VM</h1>
+        <p>Cloud-Init funktioniert.</p>
+      </body>
+      </html>
+
+runcmd:
+  - systemctl enable nginx
+  - systemctl restart nginx
