@@ -76,3 +76,15 @@ variable "ssh_allowed_cidr" {
   description = "CIDR block allowed to reach SSH (port 22). Restrict to your IP/VPN range in production."
   default     = "0.0.0.0/0"
 }
+
+# ==========================================
+# LET'S ENCRYPT / ACME
+# ==========================================
+# Set to true during testing to avoid hitting Let's Encrypt production rate
+# limits. When false (default), the production CA is used automatically.
+
+variable "acme_staging" {
+  type        = bool
+  description = "Set to true to use the Let's Encrypt staging CA instead of production."
+  default     = false
+}
