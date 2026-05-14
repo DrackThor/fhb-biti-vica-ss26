@@ -90,3 +90,36 @@ paths:
       responses:
         '200':
           description: Successful retrieval of metric data.
+
+  /api/v1/containers:
+    get:
+      summary: Get Docker Container Metrics
+      description: Retrieves real-time cgroup telemetry (CPU, RAM, Disk I/O) specifically for the individual Docker containers running on the host machine.
+      tags:
+        - Container Telemetry
+      parameters:
+        - in: query
+          name: container
+          required: true
+          description: The specific Docker container to monitor.
+          schema:
+            type: string
+            enum:
+              - netdata
+              - caddy
+              - swagger-ui
+            default: netdata
+        - in: query
+          name: chart
+          required: true
+          description: The specific metric to query for the selected container.
+          schema:
+            type: string
+            enum:
+              - cpu        # Container CPU utilization
+              - ram        # Container Memory usage
+              - disk       # Container Disk I/O
+            default: cpu
+      responses:
+        '200':
+          description: Successful retrieval of container metric data.
