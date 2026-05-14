@@ -31,6 +31,11 @@ write_files:
     content: |
       ${indent(6, caddy_config)}
 
+  # Custom OpenAPI Specification
+  - path: /opt/monitoring/openapi.yml
+    content: |
+      ${indent(6, openapi_spec)}
+
 runcmd:
   # Fetch Docker's GPG key and install Docker Engine + Compose plugin via apt.
   # This runs after package_upgrade has released the apt lock, so no race condition.
