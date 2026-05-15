@@ -174,12 +174,23 @@ Das Dashboard liefert detaillierte Einblicke in die Systemleistung, darunter glo
 
 <br>
 
+Die detaillierte RAM-Auswertung bietet einen tiefen Einblick in die Speicherverwaltung des provisionierten Ubuntu-Hosts. Neben der klassischen 
+Aufschlüsselung in genutzten, gecachten und gepufferten Arbeitsspeicher visualisiert Netdata auch fortgeschrittene Systemmetriken wie das
+Committed Memory (vom Kernel reservierter, aber noch nicht zwingend beschriebener Speicher).
+
+<br>
+
+![Screenshot of the Netdata Dashboard: RAM](img/Netdata-Dashboard-RAM.jpg)
+> **Abb 5:** Detaillierte Auswertung des Arbeitsspeichers der einzelen System-Nodes.
+
+<br>
+
 Dank der Cgroup-Integration des Docker-Sockets können auch die genutzten Ressourcen der isolierten Microservices live eingesehen werden:
 
 <br>
 
 ![Screenshot of the Netdata Dashboard: Containers](img/Netdata-Dashboard-Container.jpg)
-> **Abb 5:** Überwachung der einzelnen Docker-Container (caddy, netdata, swagger-ui) über Linux Control Groups.
+> **Abb 6:** Überwachung der einzelnen Docker-Container (caddy, netdata, swagger-ui) über Linux Control Groups.
 
 <br>
 
@@ -191,7 +202,7 @@ Dank der Cgroup-Integration des Docker-Sockets können auch die genutzten Ressou
 <br>
 
 ![Screenshot of the Swagger-UI](img/Swagger-UI-System-Overview.jpg)
-> **Abb 6:** Interaktive Swagger-Dokumentation für die Systemarchitektur.
+> **Abb 7:** Interaktive Swagger-Dokumentation für die Systemarchitektur.
 
 <br>
 
@@ -202,7 +213,7 @@ Klappen Sie den Endpunkt auf und klicken Sie auf **Try it out → Execute**. Die
 <br>
 
 ![Screenshot of the System Architecture Endpoint](img/Swagger-UI-System-Info.jpg)
-> **Abb 7:** Erfolgreicher Abruf der Host-Informationen im JSON-Format.
+> **Abb 8:** Erfolgreicher Abruf der Host-Informationen im JSON-Format.
 
 <br>
 
@@ -215,7 +226,7 @@ Ein Klick auf **Execute** feuert einen Cross-Origin-Request gegen das Backend, g
 <br>
 
 ![Screenshot of the Telemetry Endpoint](img/Swagger-UI-System-Telemetry.jpg)
-> **Abb 8:** Abruf der Live-Ressourcenmetriken. Die Antwort enthält saubere JSON-Daten direkt aus der Netdata-Datenbank.
+> **Abb 9:** Abruf der Live-Ressourcenmetriken. Die Antwort enthält saubere JSON-Daten direkt aus der Netdata-Datenbank.
 
 <br>
 
