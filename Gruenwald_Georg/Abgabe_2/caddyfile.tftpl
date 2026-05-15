@@ -20,7 +20,7 @@ ${stats_domain} {
     # Redirect root to /v3/ (trailing slash is required).
     # Without it, Netdata would issue its own internal 301 to /v3/ using the rewritten Host header ("localhost"),
     # causing the browser to navigate to http://localhost/v3/ on the user's own machine.
-    redir / /v3/
+    redir / /v3/nodes
 
     # --- Preflight Request Handler ---
     # Browsers send an OPTIONS request before cross-origin fetches to check permissions.
