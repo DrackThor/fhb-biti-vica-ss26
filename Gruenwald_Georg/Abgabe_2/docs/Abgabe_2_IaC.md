@@ -119,6 +119,7 @@ Bevor die Infrastruktur provisioniert werden kann, müssen die Exoscale API-Zuga
 |---|---|---|
 | ``EXOSCALE_API_KEY`` | Ihr Exoscale API Key | STRING |
 | ``EXOSCALE_API_SECRET`` | Ihr Exoscale API Secret | STRING |
+
 <br>
 
 ![Screenshot of the GitHub Actions settings menu](img/Github-Variables-Settings.jpg)
@@ -127,6 +128,7 @@ Bevor die Infrastruktur provisioniert werden kann, müssen die Exoscale API-Zuga
 > **Hinweis:** Da die Secrets in Terraform als `sensitive` markiert sind, werden sie von OpenTofu in den Konsolen-Logs automatisch unkenntlich gemacht.
 
 <br>
+
 Unter **Variables** können Sie optionale Umgebungsvariablen definieren, um die Konfiguration (z.B. den Sub-Domain-Namen) ohne Code-Änderungen dynamisch anzupassen.
 
 | Name | Wert | Datentyp |
@@ -146,7 +148,12 @@ Um die Vollständigkeit und Funktionsweise der Abgabe effizient zu evaluieren, f
 2. Der im Hintergrund laufende Waiting Algorithm prüft kontinuierlich den Status der Microservices.
 3. **Komfort-Funktion:** Sobald der Stack vollständig gebootet und das SSL-Zertifikat validiert ist, meldet die Pipeline „SUCCESS" und generiert die beiden finalen URLs direkt klickbar im Logauswurf.
 
+<br>
+
+![Screenshot of the Deploy Workflow Output](img/Deploy-WF-Output.jpg)
 > **Abb 2:** Die Pipeline wartet aktiv auf den SSL-Handshake und stellt die Endpunkte komfortabel bereit.
+
+<br>
 
 ### Schritt 2: Prüfung der HTML-Darstellung (Website)
 
@@ -155,26 +162,49 @@ Um die Vollständigkeit und Funktionsweise der Abgabe effizient zu evaluieren, f
 
 Das Dashboard liefert detaillierte Einblicke in die Systemleistung, darunter globale Übersichten, dedizierte Node-Verwaltung und tiefe RAM-Auswertungen:
 
-> **Abb 3:** Live-Übersicht der Host-Systemmetriken (CPU, I/O, Load).
+<br>
 
-> **Abb 4:** Detaillierte Auswertung des Arbeitsspeichers und der System-Nodes.
+![Screenshot of the Netdata Dashboard: System](img/Netdata-Dashboard-System.jpg)
+> **Abb 3:** Live-Übersicht der Host-Systemmetriken (CPU, RAM, I/O, Load).
+
+<br>
+
+![Screenshot of the Netdata Dashboard: Nodes](img/Netdata-Dashboard-Nodes.jpg)
+> **Abb 4:** Detaillierte Auswertung der System-Nodes.
+
+<br>
 
 Dank der Cgroup-Integration des Docker-Sockets können auch die genutzten Ressourcen der isolierten Microservices live eingesehen werden:
 
+<br>
+
+![Screenshot of the Netdata Dashboard: Containers](img/Netdata-Dashboard-Container.jpg)
 > **Abb 5:** Überwachung der einzelnen Docker-Container (caddy, netdata, swagger-ui) über Linux Control Groups.
+
+<br>
 
 ### Schritt 3: Prüfung der JSON-Darstellung (API)
 
 1. Klicken Sie auf den im Workflow ausgegebenen Link für die `api_url`.
 2. Hier präsentiert sich die zentralisierte Swagger UI, welche als API-Gateway zum Monitoring-Backend dient.
 
+<br>
+
+![Screenshot of the Swagger-UI](img/Swagger-UI-System-Overview.jpg)
 > **Abb 6:** Interaktive Swagger-Dokumentation für die Systemarchitektur.
+
+<br>
 
 #### Testen des Endpoints `/api/v1/info`
 
 Klappen Sie den Endpunkt auf und klicken Sie auf **Try it out → Execute**. Die API liefert strukturierte statische Systeminformationen im JSON-Format zurück (z.B. OS, Kernel-Version, Virtualisierungstyp).
 
+<br>
+
+![Screenshot of the System Architecture Endpoint](img/Swagger-UI-System-Info.jpg)
 > **Abb 7:** Erfolgreicher Abruf der Host-Informationen im JSON-Format.
+
+<br>
 
 #### Testen des Endpoints `/api/v1/data`
 
@@ -182,7 +212,12 @@ Klappen Sie den Endpunkt auf und klicken Sie auf **Try it out → Execute**. Die
 
 Ein Klick auf **Execute** feuert einen Cross-Origin-Request gegen das Backend, greift auf die neuesten Zeitfenster-Daten (`after=-1`) zu und liefert den aktuellen Live-Wert zurück. Dies beweist das erfolgreiche Zusammenspiel von Caddy-Routing und CORS-Richtlinien.
 
+<br>
+
+![Screenshot of the Telemetry Endpoint](img/Swagger-UI-System-Telemetry.jpg)
 > **Abb 8:** Abruf der Live-Ressourcenmetriken. Die Antwort enthält saubere JSON-Daten direkt aus der Netdata-Datenbank.
+
+<br>
 
 ### Schritt 4: Cleanup
 
