@@ -3,7 +3,7 @@
 # Architekturdokumentation: Automatisiertes Exoscale VM-Monitoring
 
 **Erstellt von:** Georg Grünwald  
-**Kurs:** Virtualization & Cloud Technologies SS26 (Aufgabe 2)
+**Kurs:** Virtualisierung & Cloud-Technologien SS26 (Aufgabe 2)
 
 ---
 
