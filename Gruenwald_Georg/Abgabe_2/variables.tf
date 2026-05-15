@@ -48,7 +48,7 @@ variable "root_domain" {
 variable "second_level_domain" {
   type        = string
   description = "The personal identifier used to isolate this deployment's routing from other students."
-  default     = "gmgruenwald"
+  default     = "gruenwald"
 }
 
 variable "stats_prefix" {
