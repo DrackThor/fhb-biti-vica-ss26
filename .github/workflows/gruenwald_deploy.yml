@@ -13,6 +13,9 @@ jobs:
       # Falls back to false if the GitHub variable is empty or does not exist
       TF_VAR_acme_staging: ${{ vars.ACME_STAGING || 'false' }}
 
+      # Overrides the second level domain, falls back to the default if not set
+      TF_VAR_second_level_domain: ${{ vars.SECOND_LEVEL_DOMAIN || 'gmgruenwald' }}
+      
       # Static path constants — update here if the folder structure changes
       TF_WORKING_DIR: ./Gruenwald_Georg/Abgabe_2
       TF_STATE_PATH: ./Gruenwald_Georg/Abgabe_2/terraform.tfstate
