@@ -119,12 +119,12 @@ Bevor die Infrastruktur provisioniert werden kann, müssen die Exoscale API-Zuga
 |---|---|---|
 | ``EXOSCALE_API_KEY`` | Ihr Exoscale API Key | STRING |
 | ``EXOSCALE_API_SECRET`` | Ihr Exoscale API Secret | STRING |
-
+<br>
 ![Screenshot of the GitHub Actions settings menu](img/Github-Variables-Settings.jpg)
 > **Abb 1:** Konfiguration der sensiblen Authentifizierungsdaten und dynamischen Variablen in GitHub Actions. 
 
 > **Hinweis:** Da die Secrets in Terraform als `sensitive` markiert sind, werden sie von OpenTofu in den Konsolen-Logs automatisch unkenntlich gemacht.
-
+<br>
 Unter **Variables** können Sie optionale Umgebungsvariablen definieren, um die Konfiguration (z.B. den Sub-Domain-Namen) ohne Code-Änderungen dynamisch anzupassen.
 
 | Name | Wert | Datentyp |
