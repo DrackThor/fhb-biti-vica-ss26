@@ -1,97 +1,187 @@
-# Dokumentation: Automatisierte Bereitstellung eines Monitoring-Centers
 
-## 1. Einleitung & Zielsetzung
 
-Ziel dieses Projekts ist die vollautomatisierte Bereitstellung einer virtuellen Maschine (VM) auf Exoscale, welche tiefgehende technische Details (Metriken, Hardware-Infos, OS-Parameter) über sich selbst über sichere HTTP(S)-Endpunkte bereitstellt.
+# Architekturdokumentation: Automatisiertes Exoscale VM-Monitoring
 
-Die gesamte Infrastruktur wird als Code (Infrastructure as Code - IaC) mittels OpenTofu (Terraform) definiert und über GitHub Actions Workflows (`deploy` und `destroy`) verwaltet. Die Konfiguration des Betriebssystems (Ubuntu 26.04 LTS) erfolgt nahtlos und automatisiert über Cloud-Init.
-
-Um nicht nur die Grundanforderungen, sondern auch alle Zusatzpunkte zu erfüllen, wurde die Architektur um automatisiertes DNS-Management, valide Let's Encrypt SSL-Zertifikate und ein Dual-Endpoint-Design (HTML-Website & JSON-API) erweitert.
+**Erstellt von:** Georg Grünwald  
+**Kurs:** Virtualization & Cloud Technologies SS26 (Aufgabe 2)
 
 ---
 
-## 2. Architektur & Designentscheidungen
+## 1. Management Summary & Architektur-Überblick
 
-Die Lösung setzt auf eine moderne, containerisierte Microservice-Architektur:
+Das vorliegende Projekt automatisiert die Bereitstellung einer cloud-basierten Monitoring-Lösung auf Exoscale. Durch den Einsatz von Infrastructure as Code (OpenTofu/Terraform) und Configuration Management (Cloud-Init) wird eine Ubuntu 26.04 LTS Instanz vollständig ohne manuelle Eingriffe provisioniert.
 
-- **Netdata** *(Das Backend & HTML-Frontend)*: Anstatt eines simplen Skripts wird Netdata verwendet. Es sammelt hochauflösende Systemmetriken (IP, Storage, Memory, Kernel, Hypervisor etc.) in Echtzeit und stellt diese als optisch ansprechendes HTML-Dashboard bereit.
+Die Architektur folgt einem modernen, containerisierten Ansatz. Auf der virtuellen Maschine läuft ein Docker-Compose-Stack bestehend aus drei Kernkomponenten:
 
-- **Swagger-UI** *(Die JSON-API Darstellung)*: Um die Anforderung an eine dedizierte JSON-API-Darstellung zu erfüllen, wird die native JSON-API von Netdata über eine eigene Swagger-UI Instanz visualisiert und konsumierbar gemacht.
+- **Netdata:** Dient als primäre Datenquelle und liefert Low-Level Systemmetriken der Host-VM (Speicher, CPU, Kernel) sowie Container-Telemetrie.
 
-- **Caddy** *(Reverse Proxy & HTTPS)*: Caddy fungiert als API-Gateway. Es übernimmt vollautomatisch die Ausstellung der SSL-Zertifikate via Let's Encrypt, löst CORS-Konflikte und leitet den Traffic sicher an die Container weiter.
+- **Swagger UI:** Bietet eine interaktive, dokumentierte API-Schnittstelle im JSON-Format basierend auf einer maßgeschneiderten OpenAPI-Spezifikation.
 
-- **OpenTofu & Cloud-Init**: OpenTofu provisioniert die Exoscale-Infrastruktur (VM, Security Groups, DNS-Records) und injiziert ein maßgeschneidertes Cloud-Init-Skript. Dieses Skript umgeht elegante typische apt-lock-Probleme bei Ubuntu-Bootvorgängen, installiert Docker und startet die Container.
-
----
-
-## 3. Funktionsweise der Komponenten (Code-Analyse)
-
-### 3.1. Infrastructure as Code (`main.tf` & `variables.tf`)
-
-- **Provider & Compute**: Es wird der Exoscale-Provider genutzt, um eine `standard.small` VM mit Ubuntu 26.04 in der Zone `at-vie-1` zu erstellen.
-- **Security Group**: Die Firewall-Regeln (`exoscale_security_group_rule`) erlauben strikt nur den Ingress-Traffic auf den Ports `22` (SSH), `80` (HTTP) und `443` (HTTPS).
-- **DNS Automation** *(Zusatzpunkt)*: Es werden dynamisch zwei A-Records in der Zone `biti-fhb.org` angelegt — einer für das HTML-Dashboard (`stats.*`) und einer für die API (`api.*`). Die TTL ist auf 60 Sekunden optimiert, um DNS-Caching-Probleme bei Neu-Deployments zu vermeiden.
-- **Template Injection**: Die Konfigurationsdateien (`cloud-init.yml` und `caddyfile.tftpl`) werden über die `templatefile()`-Funktion gerendert, wodurch Variablen wie Domainnamen dynamisch in das OS injiziert werden.
-
-### 3.2. Betriebssystem-Konfiguration (`cloud-init.yml`)
-
-Das Skript ist äußerst robust (bulletproof) konzipiert:
-
-- **Repository-Setup**: Um Race-Conditions mit Ubuntus internen `unattended-upgrades` zu vermeiden, werden die offiziellen Docker-GPG-Keys via `write_files` mit dem Flag `defer: true` angelegt.
-- **File Writing**: Die `docker-compose.yml` wird direkt auf das Dateisystem geschrieben.
-- **Bootstrapping** (`runcmd`): Docker wird installiert, der Service aktiviert und es wird aktiv gewartet, bis der Docker-Daemon responsiv ist (`until docker info...`), bevor der `docker compose up` Befehl ausgeführt wird. Start-Logs werden in `/var/log/docker-compose-startup.log` gesichert.
-
-### 3.3. Reverse Proxy & Routing (`caddyfile.tftpl`)
-
-Caddy lauscht auf die beiden via Terraform erstellten Subdomains:
-
-- **Stats-Domain** (`stats.*`): Leitet Anfragen mit einem "Ghost-Proxy-Trick" (`header_up Host localhost`) an Netdata weiter, um hostbasierte Sicherheitsblockaden von Netdata zu umgehen. Störende interne CORS-Header von Netdata werden entfernt (`header_down`) und durch saubere, globale Header ersetzt. Der Root-Pfad (`/`) wird komfortabel auf das moderne Dashboard (`/v3`) weitergeleitet.
-- **API-Domain** (`api.*`): Leitet Anfragen direkt an den Swagger-UI Container weiter.
-
-### 3.4. CI/CD Pipelines (GitHub Actions)
-
-- **`deploy.yml`**: Führt `tofu init` und `apply` aus. Eine Besonderheit ist der implementierte Health-Check-Loop (Polling): Die Pipeline wartet aktiv mit `curl`, bis die Applikation einen HTTP `200`/`302` Statuscode liefert. Die Pipeline ist erst erfolgreich, wenn die SSL-Zertifikate bezogen wurden und die Container wirklich laufen. Der State wird als GitHub-Artifact gesichert (`if: always()`), sodass selbst bei Abbrüchen kein State verloren geht.
-- **`destroy.yml`**: Lädt das Terraform-State-Artifact des letzten Deploy-Runs herunter und führt `tofu destroy` sauber aus, um alle Ressourcen restlos zu entfernen.
+- **Caddy Reverse Proxy:** Fungiert als API-Gateway und TLS-Terminierungspunkt, der den eingehenden Traffic sicher auf die jeweiligen Microservices verteilt.
 
 ---
 
-## 4. Erfüllung der Anforderungen (Mapping)
+## 2. Erfüllung der Zusatzpunkte
 
-| Anforderung | Umsetzung in der Lösung |
-|---|---|
-| URL liefert technische Details der VM | Netdata liefert in Echtzeit hunderte Metriken (Kernel, IP, Storage, CPU, RAM) des Hosts. |
-| VM auf Exoscale & Ubuntu OS | Provisioniert via `exoscale_compute_instance` (Ubuntu 26.04). |
-| Komplette Automatisierung via Cloud-Init | Docker-Installation, File-Creation und Service-Start passieren ohne manuellen Eingriff via `cloud-init.yml`. |
-| Tofu GitHub Workflows (Deploy & Destroy) | Zwei getrennte, funktionale Actions inkl. intelligentem State-Handling über Artifacts. |
-| Zusatzpunkt: DNS und Zertifikate (HTTPS) | Terraform setzt automatisiert die A-Records. Caddy generiert On-the-Fly gültige Let's Encrypt SSL-Zertifikate. HTTP wird forciert auf HTTPS umgeleitet. |
-| Zusatzpunkt: HTML und JSON über zwei Endpunkte | **Endpunkt 1** (`stats.ggruenwald...`): HTML-Website (Netdata Dashboard). **Endpunkt 2** (`api.ggruenwald...`): JSON API grafisch aufbereitet (Swagger-UI). |
+Um die Kriterien für die Zusatzpunkte zu erfüllen, wurde die Infrastruktur um fortgeschrittene Routing- und Sicherheitskonzepte erweitert.
+
+### A. Korrekte Verwendung von DNS und TLS/HTTPS-Zertifikaten
+
+Die Verknüpfung von dynamischen Cloud-Ressourcen mit statischen Endpunkten wurde über DNS-Automatisierung gelöst:
+
+- Terraform fragt die Basis-Domain (`biti-fhb.org`) ab und generiert dynamisch zwei dedizierte A-Records in der Exoscale DNS-Zone, welche auf die Public IP der generierten VM zeigen.
+
+- Der Caddy Reverse Proxy ist so konfiguriert, dass er automatisch beim Start über Let's Encrypt vertrauenswürdige HTTPS-Zertifikate für diese Subdomains bezieht und verlängert.
+
+- Um API-Rate-Limits während der Entwicklung zu vermeiden, wurde eine variable Steuerung (`acme_staging`) implementiert, die nahtlos zwischen Staging- und Produktions-Zertifikaten wechseln kann.
+
+### B. Zwei dedizierte Endpunkte für HTML (Website) und JSON (API)
+
+Die Anforderung, Daten sowohl optisch als auch maschinenlesbar auszuliefern, wurde durch eine Trennung auf Subdomain-Ebene realisiert, konfiguriert im Caddyfile:
+
+#### HTML Dashboard (`dashboard.gmgruenwald.biti-fhb.org`)
+
+- Leitet den Traffic sicher an das Netdata-Dashboard weiter.
+- Eine Quality-of-Life-Regel leitet den Root-Pfad direkt auf die neue `/v3/` UI von Netdata um, um interne Routing-Fehler zu vermeiden.
+
+#### JSON API (`api.gmgruenwald.biti-fhb.org`)
+
+- Leitet den Traffic an den Swagger UI Container weiter.
+- Dort wird eine über Cloud-Init dynamisch injizierte `openapi.yml` gerendert, welche dedizierte Endpunkte (`/api/v1/info` und `/api/v1/data`) für System- und Container-Metriken im JSON-Format bereitstellt.
 
 ---
 
-## 5. Anleitung zur Verwendung (Usage Guide)
+## 3. Engineering-Details (Deep Dive)
 
-### Schritt 1: Infrastruktur aufbauen
+Neben den Basisanforderungen wurden architektonische Hürden proaktiv gelöst, auf die bei der Bewertung besonders geachtet werden sollte.
 
-1. Navigieren Sie in diesem GitHub-Repository zum Reiter **Actions**.
-2. Wählen Sie links den Workflow **"Deploy Infrastructure"** aus.
-3. Klicken Sie auf **"Run workflow"** (Branch: `main` bzw. Ihr Abgabe-Branch).
+### Funktionaler Waiting Algorithm (CI/CD Pipeline)
 
-> **Hinweis:** Die Pipeline wartet am Ende in einer Loop, bis Caddy das SSL-Zertifikat bezogen hat und Netdata gebootet ist. Wenn der Workflow grün wird, ist die Applikation zu 100% erreichbar.
+Ein bekanntes Problem bei automatisierten Cloud-Deployments ist, dass Infrastructure-as-Code-Tools (wie OpenTofu) ihren Job als „erfolgreich" markieren, sobald die VM gebootet ist. Zu diesem Zeitpunkt laufen im Hintergrund aber noch Cloud-Init, die Docker-Container-Provisionierung und die asynchrone Zertifikatsausstellung durch Let's Encrypt.
 
-### Schritt 2: Ergebnisse begutachten
+Um „False Positives" in der Pipeline zu vermeiden, wurde ein funktionaler Waiting Algorithm in das Deploy-Skript (`gruenwald_deploy.yml`) integriert, der den Job erst abschließt, wenn die Applikation tatsächlich online ist:
 
-Sobald der Workflow erfolgreich durchgelaufen ist, können die beiden Endpunkte aufgerufen werden:
+- **Intelligentes Polling:** Ein Bash-Skript nutzt `curl`, um den Netdata-Endpunkt in einer Schleife abzufragen, und wartet spezifisch auf einen gültigen HTTP-Statuscode (`200` oder `302`).
 
-- **HTML-Website** *(Visualisierung der Systemdaten)*:
-  Rufen Sie [`https://stats.ggruenwald.biti-fhb.org`](https://stats.ggruenwald.biti-fhb.org) im Browser auf. Sie werden automatisch auf das hochdetaillierte V3-Dashboard von Netdata weitergeleitet (Verbindung ist via SSL gesichert).
+- **DNS-Bypass (`--resolve`):** Um Verzögerungen bei der globalen DNS-Propagierung zu umgehen (die GitHub-Runner oft betrifft), tunnelt der `curl`-Befehl den Request direkt auf die via Terraform ausgelesene Public IP der VM, täuscht dem Webserver aber gleichzeitig den korrekten Hostnamen für den SSL-Handshake vor.
 
-- **JSON API Endpunkt** *(Technische Rohdaten)*:
-  Rufen Sie [`https://api.ggruenwald.biti-fhb.org`](https://api.ggruenwald.biti-fhb.org) im Browser auf. Sie sehen die Swagger-UI, welche die JSON-Schnittstelle von Netdata dokumentiert und konsumierbar macht.
+- **Dynamisches SSL-Handling & Timeout:** Die Schleife (Timeout bei 10 Minuten) wertet die Terraform-Variable `acme_staging` aus. Ist diese aktiv, deaktiviert das Skript temporär die strenge SSL-Verifizierung (`--insecure`), damit der Check bei untrusted Staging-Zertifikaten nicht fehlschlägt.
 
-### Schritt 3: Infrastruktur abbauen
+Dies garantiert einen deterministischen Pipeline-Status und eine nahtlose Übergabe an den Nutzer.
 
-1. Navigieren Sie zurück zu **Actions**.
-2. Wählen Sie den Workflow **"Destroy Infrastructure"** aus.
-3. Klicken Sie auf **"Run workflow"**.
+### Injektion von Konfigurationsdateien (Maintainability)
 
-Die Pipeline lädt automatisch den letzten State herunter und löscht die VM, die Security Groups und die DNS-Records auf Exoscale rückstandslos.
+Um die `cloud-init.yml` übersichtlich und wartbar zu halten, wurden große Konfigurationsblöcke (wie das Caddyfile und die Docker Compose Konfiguration)  in separate `.tftpl`-Dateien (Terraform Templates) ausgelagert. Die `openapi.yml` wurde ebenfalls ausgegliedert. Terraform rendert diese Dateien zur Laufzeit, injiziert die benötigten dynamischen Variablen und fügt sie erst im letzten Schritt nahtlos ein.
+
+## Strategisches API-Design: Der Netdata-Wrapper
+
+Ein zentraler Aspekt dieser Architektur ist die Implementierung einer eigenen OpenAPI-Spezifikation. Während das Netdata-Backend eine extrem umfassende API mit tausenden Metriken bereitstellt, fungiert unser Ansatz als Lightweight-Wrapper. 
+
+**Vorteile dieses Wrapper-Designs:** 
+
+- **Abstraktion:** Die native Netdata-API ist für allgemeine Monitoring-Zwecke konzipiert und daher sehr breit gefächert. Unser Wrapper fungiert als kuratierte Schnittstelle (Facade), die nur die für diese Infrastruktur-Validierung essenziellen Datenpunkte exponiert.
+
+-  **Benutzerführung:** Anstatt den Nutzer mit tausenden Chart-IDs zu konfrontieren, bietet unser Wrapper eine gezielte Auswahl. Die durch Enums und vordefinierte Chart-IDs (z.B. `system.cpu`, `cgroup_caddy.mem`) wird der Fokus direkt zu den relevanten Datenpunkten, ohne dass Kenntnisse über interne Netdata-Chart-Strukturen nötig sind gelenkt.
+
+ - **Dokumentation:** Die Spezifikation bietet menschenlesbare Erklärungen für technische Metriken, was die Transparenz der gelieferten Daten erhöht. 
+
+- **Sicherheitsaspekt (API Surface Reduction):** Durch das gezielte Exponieren von Endpunkten wird die Angriffsfläche deutlich verringert. Ein externer Nutzer sieht nur das, was für die Überwachung der Applikation notwendig ist, was dem Sicherheitsprinzip der "Minimalen Exposition" entspricht.
+
+### Strict CORS Management
+
+Da Swagger asynchrone Anfragen an Netdata sendet, greifen strikte CORS-Richtlinien. Anstatt die fehleranfälligen CORS-Header von Netdata zu nutzen, fungiert Caddy als API-Gateway. Caddy entfernt die Backend-Header und erzwingt eine zentrale, restriktive CORS-Policy. Der Zugriff wird nach dem Least-Privilege-Prinzip strikt auf die exakte Swagger-URL limitiert (keine `*` Wildcards), was CSRF-ähnliche Datenabflüsse zuverlässig verhindert.
+
+### Isolierte Sicherheit & Host-Header Rewriting
+
+Da Netdata Anfragen von unbekannten Domains mit einem HTTP-400-Fehler ablehnt, manipuliert Caddy den Header (`header_up Host localhost`), um Netdata vorzutäuschen, die Anfrage käme vom lokalen System. Gleichzeitig läuft Netdata für tiefe Systemeinblicke mit Linux-Capabilities (`SYS_PTRACE`, `SYS_ADMIN`), während der globale externe Zugriff durch eine restriktive Security Group geschützt ist (SSH Zugriff über CIDR-Blöcke limitiert).
+
+---
+
+## 4. Initialisierung und Konfiguration
+
+Bevor die Infrastruktur provisioniert werden kann, müssen die Exoscale API-Zugangsdaten sicher im GitHub-Repository hinterlegt werden, damit der GitHub Actions Workflow (OpenTofu) sich authentifizieren kann.
+
+1. Navigieren Sie in Ihrem GitHub-Repository zu:
+
+   ```text
+   Settings > Secrets and variables > Actions
+   ```
+
+2. Klicken Sie auf:
+
+   ```text
+   New repository secret
+   ```
+
+3. Erstellen Sie folgende zwei Secrets (diese entsprechen den Variablen in der `variables.tf`):
+
+| Name | Wert | Datentyp |
+|---|---|---|
+| ``EXOSCALE_API_KEY`` | Ihr Exoscale API Key | STRING |
+| ``EXOSCALE_API_SECRET`` | Ihr Exoscale API Secret | STRING |
+
+(img/Github-Variables-Settings.jpg)
+> **Abb 1:** Konfiguration der sensiblen Authentifizierungsdaten und dynamischen Variablen in GitHub Actions. 
+
+> **Hinweis:** Da die Secrets in Terraform als `sensitive` markiert sind, werden sie von OpenTofu in den Konsolen-Logs automatisch unkenntlich gemacht.
+
+Unter **Variables** können Sie optionale Umgebungsvariablen definieren, um die Konfiguration (z.B. den Sub-Domain-Namen) ohne Code-Änderungen dynamisch anzupassen.
+
+| Name | Wert | Datentyp |
+|---|---|---|
+| ``SECOND_LEVEL_DOMAIN`` | Ihre Second Level Domain | STRING |
+| ``ACME_STAGING`` | Staging OFF / ON | BOOL |
+
+---
+
+## 5. Test- und Prüfanleitung
+
+Um die Vollständigkeit und Funktionsweise der Abgabe effizient zu evaluieren, folgen Sie bitte diesen Schritten.
+
+### Schritt 1: Automatisierte Provisionierung
+
+1. Führen Sie den bereitgestellten GitHub Actions Workflow zur Erstellung der Infrastruktur aus.
+2. Der im Hintergrund laufende Waiting Algorithm prüft kontinuierlich den Status der Microservices.
+3. **Komfort-Funktion:** Sobald der Stack vollständig gebootet und das SSL-Zertifikat validiert ist, meldet die Pipeline „SUCCESS" und generiert die beiden finalen URLs direkt klickbar im Logauswurf.
+
+> **Abb 2:** Die Pipeline wartet aktiv auf den SSL-Handshake und stellt die Endpunkte komfortabel bereit.
+
+### Schritt 2: Prüfung der HTML-Darstellung (Website)
+
+1. Klicken Sie auf den im Workflow ausgegebenen Link für die `stats_url`.
+2. Sie sehen das optisch aufbereitete Netdata-Dashboard mit Echtzeit-Telemetrie der Ubuntu-VM. Die HTTPS-Verbindung ist gesichert.
+
+Das Dashboard liefert detaillierte Einblicke in die Systemleistung, darunter globale Übersichten, dedizierte Node-Verwaltung und tiefe RAM-Auswertungen:
+
+> **Abb 3:** Live-Übersicht der Host-Systemmetriken (CPU, I/O, Load).
+
+> **Abb 4:** Detaillierte Auswertung des Arbeitsspeichers und der System-Nodes.
+
+Dank der Cgroup-Integration des Docker-Sockets können auch die genutzten Ressourcen der isolierten Microservices live eingesehen werden:
+
+> **Abb 5:** Überwachung der einzelnen Docker-Container (caddy, netdata, swagger-ui) über Linux Control Groups.
+
+### Schritt 3: Prüfung der JSON-Darstellung (API)
+
+1. Klicken Sie auf den im Workflow ausgegebenen Link für die `api_url`.
+2. Hier präsentiert sich die zentralisierte Swagger UI, welche als API-Gateway zum Monitoring-Backend dient.
+
+> **Abb 6:** Interaktive Swagger-Dokumentation für die Systemarchitektur.
+
+#### Testen des Endpoints `/api/v1/info`
+
+Klappen Sie den Endpunkt auf und klicken Sie auf **Try it out → Execute**. Die API liefert strukturierte statische Systeminformationen im JSON-Format zurück (z.B. OS, Kernel-Version, Virtualisierungstyp).
+
+> **Abb 7:** Erfolgreicher Abruf der Host-Informationen im JSON-Format.
+
+#### Testen des Endpoints `/api/v1/data`
+
+Über diesen Endpunkt lässt sich die Live-Telemetrie abrufen. Wählen Sie im Dropdown `chart` gezielt zwischen Host-Metriken (z.B. `system.ram`) und spezifischen Container-Metriken (z.B. `cgroup_caddy.mem`).
+
+Ein Klick auf **Execute** feuert einen Cross-Origin-Request gegen das Backend, greift auf die neuesten Zeitfenster-Daten (`after=-1`) zu und liefert den aktuellen Live-Wert zurück. Dies beweist das erfolgreiche Zusammenspiel von Caddy-Routing und CORS-Richtlinien.
+
+> **Abb 8:** Abruf der Live-Ressourcenmetriken. Die Antwort enthält saubere JSON-Daten direkt aus der Netdata-Datenbank.
+
+### Schritt 4: Cleanup
+
+Nutzen Sie den bereitgestellten **Destroy-Workflow** in GitHub Actions, um sämtliche Cloud-Ressourcen inklusive der DNS-Records sauber und automatisiert wieder zu entfernen.
