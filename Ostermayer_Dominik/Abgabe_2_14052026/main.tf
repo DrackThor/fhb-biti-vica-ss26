@@ -27,7 +27,7 @@ resource "exoscale_compute_instance" "web" {
   zone               = var.zone
   name               = "abgabe-2-webserver"
   template_id        = data.exoscale_template.ubuntu.id
-  type               = "standard.micro"
+  type               = "standard.small"
   disk_size          = 10
   security_group_ids = [exoscale_security_group.web.id]
   ssh_keys           = [exoscale_ssh_key.ssh.id]
@@ -64,7 +64,7 @@ resource "exoscale_security_group_rule" "ssh" {
 # Create ssh-key resource to allow SSH access to the instance
 resource "exoscale_ssh_key" "ssh" {
   name       = "ssh-key"
-  public_key = file("C:/Users/User/.ssh/id_ed25519.pub")
+  public_key = file(pathexpand("~/.ssh/id_ed25519.pub"))
 }
 
 

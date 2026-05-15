@@ -7,11 +7,11 @@ Automatisierte Bereitstellung eines Ubuntu NGINX-Webservers in Exoscale mittels 
 Die Lösung erstellt:
 
 - Ubuntu VM
-- nginx Webserver
+- Nginx Webserver
 - JSON API Endpoint
 - Security Groups
 - SSH Zugriff
-- zusätzlichen Linux User
+- Zusätzlichen Linux User
 
 ---
 
@@ -20,7 +20,7 @@ Die Lösung erstellt:
 - Terraform
 - Exoscale
 - Cloud-Init
-- nginx
+- Nginx
 - GitHub Actions
 
 ---
@@ -29,13 +29,35 @@ Die Lösung erstellt:
 
 - Terraform installiert
 - Exoscale API Keys
-- SSH Key bereits vorhanden
-- ansonsten vorher:
+  
+### SSH Key
+
+Aufgrund von Sicherheitsüberlegungen im Zusammenhang mit der SSH-Key-Pair-Erstellgung im Zuge IaC (Private Key landet gezwungenermaßen im State-File) soll die SSH-Key-Pair-Erstellung bereits vor "terraform plan" stattfinden oder es exiert ohnehin bereits ein lokaler Public Key des Systems, der verwendet werden kann.
+
+
+- Prüfen ob Key bereits vorhanden:
+- 
+```bash
+cat ~/.ssh/id_ed25519.pub
+```
+- Wenn nicht dann SSH-Key-Gen:  
   
 ```bash
 ssh-keygen -t ed25519
 ```
+- SSH Public Key anzeigen
 
+```bash
+cat ~/.ssh/id_ed25519.pub
+```
+- SSH Public Key muss in Cloud-init.yaml unter
+  
+```bash
+users: 
+sssh_authorized_keys:
+ssh-ed25519 HTEDSAAA..... example@example.com
+```
+- kopiert werden (komplette Zeile kopieren)
 
 ---
 
@@ -102,13 +124,14 @@ ssh tux@IP
 | main.tf | Infrastruktur |
 | variables.tf | Variablen |
 | outputs.tf | Outputs |
-| cloud-init.yaml | Linux Automation |
+| cloud-init.yaml | System-Config |
 | .gitignore | Git Ausschlüsse |
 
 ---
 
 ## Hinweise
 
+- SSH-Public-Key vor "terraform plan" in cloud-init.yaml kopieren
 - terraform.tfvars enthält Secrets und wird nicht committed.
 - Änderungen an cloud-init.yaml benötigen meist destroy + apply.
 - Security Groups erlauben HTTP (80) und SSH (22).
