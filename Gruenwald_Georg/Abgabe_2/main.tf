@@ -69,7 +69,7 @@ resource "exoscale_compute_instance" "vm" {
     stats_domain = "${var.stats_prefix}.${var.second_level_domain}.${var.root_domain}"
 
     # Inject the OpenAPI spec dynamically
-    openapi_spec = templatefile("${path.module}/openapi.yml", {
+    openapi_spec = templatefile("${path.module}/openapi.tftpl", {
       stats_domain = "${var.stats_prefix}.${var.second_level_domain}.${var.root_domain}"
     })
 
