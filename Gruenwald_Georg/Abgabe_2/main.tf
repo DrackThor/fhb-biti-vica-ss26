@@ -64,9 +64,9 @@ resource "exoscale_compute_instance" "vm" {
   disk_size          = 50
   security_group_ids = [exoscale_security_group.sg.id]
 
-  # Dynamically build the full domains and inject them into cloud-init
+  # The cloud-init configuration acts as the root orchestrator. To maximize maintainability,
+  # configuration files are decoupled into dedicated sub-templates (.tftpl).
   user_data = templatefile("${path.module}/cloud-init.yml", {
-    stats_domain = "${var.stats_prefix}.${var.second_level_domain}.${var.root_domain}"
 
     # Inject the OpenAPI spec dynamically
     openapi_spec = templatefile("${path.module}/openapi.tftpl", {
