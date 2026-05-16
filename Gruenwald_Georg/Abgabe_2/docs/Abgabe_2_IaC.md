@@ -144,9 +144,9 @@ Wird dieses Limit durch zu häufige Neu-Deployments (z. B. während der Testphas
 
 **Handlungsempfehlungen und Lösungsansätze:**
 
-*   **Nutzung der Staging-Umgebung (Empfohlen für Entwicklung):** Um das Rate Limit bei häufigen Deployments proaktiv zu vermeiden, sollte die Variable `ACME_STAGING` auf `true` (ON) gesetzt werden. Die Staging-Umgebung von Let's Encrypt besitzt deutlich höhere Limits. *
+*   **Nutzung der Staging-Umgebung (Empfohlen für Entwicklung):** Um das Rate Limit bei häufigen Deployments proaktiv zu vermeiden, sollte die Variable `ACME_STAGING` auf `true` (ON) gesetzt werden. Die Staging-Umgebung von Let's Encrypt besitzt deutlich höhere Limits.
 
-> **Hinweis:** Staging-Zertifikate lösen im Browser eine Sicherheitswarnung aus, die für reine Funktionstests jedoch ignoriert werden kann.*
+> **Hinweis:** Staging-Zertifikate lösen im Browser eine Sicherheitswarnung aus, die für reine Funktionstests jedoch ignoriert werden kann.
 
 *   **Subdomain wechseln (Bei Erreichen des Limits):** Ist das Limit für die Produktionsumgebung bereits überschritten, muss bei einem erneuten Deployment zwingend ein neuer Hostname gewählt werden. Hierfür ist der Wert der Variable `SECOND_LEVEL_DOMAIN` abzuändern (z. B. von `gruenwald` auf `gruenwald-v2`), um eine frische Zertifikatsausstellung zu erzwingen.
 
