@@ -17,8 +17,8 @@ jobs:
       TF_VAR_second_level_domain: ${{ vars.SECOND_LEVEL_DOMAIN || 'gruenwald' }}
       
       # Static path constants — update here if the folder structure changes
-      TF_WORKING_DIR: ./Gruenwald_Georg/Abgabe_2
-      TF_STATE_PATH: ./Gruenwald_Georg/Abgabe_2/terraform.tfstate
+      TF_WORKING_DIR: ./Gruenwald_Georg/Abgabe_2_260516
+      TF_STATE_PATH: ./Gruenwald_Georg/Abgabe_2_260516/terraform.tfstate
       
       # Fix for the Node.js 20 deprecation warning
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
