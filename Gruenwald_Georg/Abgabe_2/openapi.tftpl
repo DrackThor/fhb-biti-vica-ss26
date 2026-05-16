@@ -11,11 +11,8 @@ info:
     name: Georg Grünwald
 
 servers:
-  - url: https://{stats_domain}
+  - url: https://${stats_domain}
     description: Live Exoscale VM Metrics
-    variables:
-      stats_domain:
-        description: The domain name of the telemetry server
 
 paths:
   /api/v1/info:
