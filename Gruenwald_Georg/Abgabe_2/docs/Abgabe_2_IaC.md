@@ -101,7 +101,7 @@ Da Netdata Anfragen von unbekannten Domains mit einem HTTP-400-Fehler ablehnt, m
 
 Bevor die Infrastruktur provisioniert werden kann, müssen die Exoscale API-Zugangsdaten sicher im GitHub-Repository hinterlegt werden, damit der GitHub Actions Workflow (OpenTofu) sich authentifizieren kann.
 
-1. Navigieren Sie in Ihrem GitHub-Repository zu:
+1. Im GitHub-Repository zu folgendem Pfad navigieren:
 
    ```text
    Settings > Secrets and variables > Actions
@@ -113,54 +113,71 @@ Bevor die Infrastruktur provisioniert werden kann, müssen die Exoscale API-Zuga
    New repository secret
    ```
 
-3. Erstellen Sie folgende zwei Secrets (diese entsprechen den Variablen in der `variables.tf`):
+3. Die folgenden zwei Secrets erstellen (diese entsprechen den Variablen in der `variables.tf`):
 
 | Name | Wert | Datentyp |
 |---|---|---|
-| ``EXOSCALE_API_KEY`` | Ihr Exoscale API Key | STRING |
-| ``EXOSCALE_API_SECRET`` | Ihr Exoscale API Secret | STRING |
+| `EXOSCALE_API_KEY` | Der Exoscale API Key | STRING |
+| `EXOSCALE_API_SECRET` | Das Exoscale API Secret | STRING |
 
 <br>
 
 ![Screenshot of the GitHub Actions settings menu](img/Github-Variables-Settings.jpg)
-> **Abb 1:** Konfiguration der sensiblen Authentifizierungsdaten und dynamischen Variablen in GitHub Actions. 
+> **Abb 1:** Konfiguration der sensiblen Authentifizierungsdaten und dynamischen Variablen in GitHub Actions.
 
 > **Hinweis:** Da die Secrets in Terraform als `sensitive` markiert sind, werden sie von OpenTofu in den Konsolen-Logs automatisch unkenntlich gemacht.
 
 <br>
 
-Unter **Variables** können Sie optionale Umgebungsvariablen definieren, um die Konfiguration (z.B. den Sub-Domain-Namen) ohne Code-Änderungen dynamisch anzupassen.
+Unter **Variables** lassen sich optionale Umgebungsvariablen definieren, um die Konfiguration (z.B. den Sub-Domain-Namen) ohne Code-Änderungen dynamisch anzupassen.
 
 | Name | Wert | Datentyp |
 |---|---|---|
-| ``SECOND_LEVEL_DOMAIN`` | Ihre Second Level Domain | STRING |
-| ``ACME_STAGING`` | Staging OFF / ON | BOOL |
+| `SECOND_LEVEL_DOMAIN` | Die Second Level Domain | STRING |
+| `ACME_STAGING` | Staging OFF / ON | BOOL |
+
+### Wichtiger Hinweis zu SSL-Zertifikaten (Let's Encrypt Rate Limits)
+
+Beim wiederholten Deployment der Infrastruktur sind die strengen Limitierungen (Rate Limits) von Let's Encrypt zu beachten. Für exakt denselben Hostnamen (Fully Qualified Domain Name / FQDN) stellt Let's Encrypt aus Sicherheits- und Kapazitätsgründen **maximal fünf identische Zertifikate pro Woche** aus (Duplicate Certificate Limit).
+
+Wird dieses Limit durch zu häufige Neu-Deployments (z. B. während der Testphase) überschritten, blockiert Let's Encrypt weitere Anfragen. Dies hat zur Folge, dass der Webserver kein gültiges Zertifikat beziehen kann. Ohne erfolgreichen SSL-Handshake wird die Anwendung im Browser mit einem SSL-Fehler blockiert und ist nicht mehr aufrufbar.
+
+**Handlungsempfehlungen und Lösungsansätze:**
+
+*   **Nutzung der Staging-Umgebung (Empfohlen für Entwicklung):** Um das Rate Limit bei häufigen Deployments proaktiv zu vermeiden, sollte die Variable `ACME_STAGING` auf `true` (ON) gesetzt werden. Die Staging-Umgebung von Let's Encrypt besitzt deutlich höhere Limits. *
+
+> **Hinweis:** Staging-Zertifikate lösen im Browser eine Sicherheitswarnung aus, die für reine Funktionstests jedoch ignoriert werden kann.*
+
+*   **Subdomain wechseln (Bei Erreichen des Limits):** Ist das Limit für die Produktionsumgebung bereits überschritten, muss bei einem erneuten Deployment zwingend ein neuer Hostname gewählt werden. Hierfür ist der Wert der Variable `SECOND_LEVEL_DOMAIN` abzuändern (z. B. von `gruenwald` auf `gruenwald-v2`), um eine frische Zertifikatsausstellung zu erzwingen.
 
 ---
 
 ## 5. Test- und Prüfanleitung
 
-Um die Vollständigkeit und Funktionsweise der Abgabe effizient zu evaluieren, folgen Sie bitte diesen Schritten.
+Zur effizienten Evaluierung der Vollständigkeit und Funktionsweise der Bereitstellung sind folgende Schritte auszuführen:
 
 ### Schritt 1: Automatisierte Provisionierung
 
-1. Führen Sie den bereitgestellten GitHub Actions Workflow zur Erstellung der Infrastruktur aus.
+1. Den bereitgestellten GitHub Actions **Deploy-Workflow** zur Erstellung der Infrastruktur ausführen.
+
 2. Der im Hintergrund laufende Waiting Algorithm prüft kontinuierlich den Status der Microservices.
-3. **Komfort-Funktion:** Sobald der Stack vollständig gebootet und das SSL-Zertifikat validiert ist, meldet die Pipeline „SUCCESS" und generiert die beiden finalen URLs direkt klickbar im Logauswurf.
+
+3. Automatisierte Bereitstellung: Sobald der Stack vollständig gebootet und das SSL-Zertifikat validiert ist, meldet die Pipeline **„SUCCESS"** und generiert die beiden finalen URLs als klickbare Links im Logauswurf.
 
 <br>
 
 ![Screenshot of the Deploy Workflow Output](img/Deploy-WF-Output.jpg)
-> **Abb 2:** Die Pipeline wartet aktiv auf den SSL-Handshake und stellt die Endpunkte komfortabel bereit.
+> **Abb 2:** Die Pipeline wartet aktiv auf den SSL-Handshake und stellt die Endpunkte bereit.
 
 <br>
 
 ### Schritt 2: Prüfung der HTML-Darstellung (Website)
 
-1. Klicken Sie auf den im Workflow ausgegebenen Link für die `stats_url`.
-2. Sie sehen das optisch aufbereitete Netdata-Dashboard mit Echtzeit-Telemetrie der Ubuntu-VM. Die HTTPS-Verbindung ist gesichert.
+1. Den im Workflow ausgegebenen Link für die `stats_url` aufrufen.
 
-Das Dashboard liefert detaillierte Einblicke in die Systemleistung, darunter globale Übersichten, dedizierte Node-Verwaltung und tiefe RAM-Auswertungen:
+2. Es öffnet sich das **Netdata-Dashboard** mit der Echtzeit-Telemetrie der Ubuntu-VM. Die HTTPS-Verbindung ist gesichert.
+
+Das Dashboard liefert detaillierte Einblicke in die Systemleistung, darunter globale Übersichten, dedizierte Node-Verwaltung und tiefgehende RAM-Auswertungen:
 
 <br>
 
@@ -174,9 +191,7 @@ Das Dashboard liefert detaillierte Einblicke in die Systemleistung, darunter glo
 
 <br>
 
-Die detaillierte RAM-Auswertung bietet einen tiefen Einblick in die Speicherverwaltung des provisionierten Ubuntu-Hosts. Neben der klassischen 
-Aufschlüsselung in genutzten, gecachten und gepufferten Arbeitsspeicher visualisiert Netdata auch fortgeschrittene Systemmetriken wie das
-Committed Memory (vom Kernel reservierter, aber noch nicht zwingend beschriebener Speicher).
+Die detaillierte RAM-Auswertung bietet einen tiefen Einblick in die Speicherverwaltung des provisionierten Ubuntu-Hosts. Neben der klassischen Aufschlüsselung in genutzten, gecachten und gepufferten Arbeitsspeicher visualisiert Netdata auch fortgeschrittene Systemmetriken wie das Committed Memory (vom Kernel reservierter, aber noch nicht zwingend beschriebener Speicher).
 
 <br>
 
@@ -196,8 +211,9 @@ Dank der Cgroup-Integration des Docker-Sockets können auch die genutzten Ressou
 
 ### Schritt 3: Prüfung der JSON-Darstellung (API)
 
-1. Klicken Sie auf den im Workflow ausgegebenen Link für die `api_url`.
-2. Hier präsentiert sich die zentralisierte Swagger UI, welche als API-Gateway zum Monitoring-Backend dient.
+1. Den im Workflow ausgegebenen Link für die `api_url` aufrufen.
+
+2. Es öffnet sich die zentralisierte **Swagger UI**, welche als API-Gateway zum Monitoring-Backend dient.
 
 <br>
 
@@ -208,7 +224,7 @@ Dank der Cgroup-Integration des Docker-Sockets können auch die genutzten Ressou
 
 #### Testen des Endpoints `/api/v1/info`
 
-Klappen Sie den Endpunkt auf und klicken Sie auf **Try it out → Execute**. Die API liefert strukturierte statische Systeminformationen im JSON-Format zurück (z.B. OS, Kernel-Version, Virtualisierungstyp).
+Den Endpunkt aufklappen und auf **Try it out → Execute** klicken. Die API liefert strukturierte, statische Systeminformationen im JSON-Format zurück (z.B. OS, Kernel-Version, Virtualisierungstyp).
 
 <br>
 
@@ -219,9 +235,9 @@ Klappen Sie den Endpunkt auf und klicken Sie auf **Try it out → Execute**. Die
 
 #### Testen des Endpoints `/api/v1/data`
 
-Über diesen Endpunkt lässt sich die Live-Telemetrie abrufen. Wählen Sie im Dropdown `chart` gezielt zwischen Host-Metriken (z.B. `system.ram`) und spezifischen Container-Metriken (z.B. `cgroup_caddy.mem`).
+Über diesen Endpunkt lässt sich die Live-Telemetrie abrufen. Im Dropdown chart kann gezielt zwischen Host-Metriken (z.B. `system.ram`) und spezifischen Container-Metriken (z.B. `cgroup_caddy.mem`) gewählt werden.
 
-Ein Klick auf **Execute** feuert einen Cross-Origin-Request gegen das Backend, greift auf die neuesten Zeitfenster-Daten (`after=-1`) zu und liefert den aktuellen Live-Wert zurück. Dies beweist das erfolgreiche Zusammenspiel von Caddy-Routing und CORS-Richtlinien.
+Ein Klick auf **Execute** löst einen Cross-Origin-Request an das Backend aus, greift auf die neuesten Zeitfenster-Daten (`after=-1`) zu und liefert den aktuellen Live-Wert zurück. Dies bestätigt das erfolgreiche Zusammenspiel von Caddy-Routing und CORS-Richtlinien.
 
 <br>
 
@@ -232,4 +248,4 @@ Ein Klick auf **Execute** feuert einen Cross-Origin-Request gegen das Backend, g
 
 ### Schritt 4: Cleanup
 
-Nutzen Sie den bereitgestellten **Destroy-Workflow** in GitHub Actions, um sämtliche Cloud-Ressourcen inklusive der DNS-Records sauber und automatisiert wieder zu entfernen.
+Den bereitgestellten **Destroy-Workflow** in GitHub Actions ausführen, um sämtliche Cloud-Ressourcen inklusive der DNS-Records automatisiert und vollständig zu entfernen.
