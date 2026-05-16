@@ -14,7 +14,7 @@ jobs:
       TF_VAR_acme_staging: ${{ vars.ACME_STAGING || 'false' }}
 
       # Overrides the second level domain, falls back to the default if not set
-      TF_VAR_second_level_domain: ${{ vars.SECOND_LEVEL_DOMAIN || 'gmgruenwald' }}
+      TF_VAR_second_level_domain: ${{ vars.SECOND_LEVEL_DOMAIN || 'gruenwald' }}
       
       # Static path constants — update here if the folder structure changes
       TF_WORKING_DIR: ./Gruenwald_Georg/Abgabe_2
