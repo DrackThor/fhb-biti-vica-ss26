@@ -11,7 +11,7 @@ jobs:
       TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
 
       # Static path constants — update here if the folder structure changes
-      TF_WORKING_DIR: ./Gruenwald_Georg/Abgabe_2
+      TF_WORKING_DIR: ./Gruenwald_Georg/Abgabe_2_260516
       TF_WORKFLOW_NAME: gruenwald_deploy.yml
       
       # Fix for the Node.js 20 deprecation warning
