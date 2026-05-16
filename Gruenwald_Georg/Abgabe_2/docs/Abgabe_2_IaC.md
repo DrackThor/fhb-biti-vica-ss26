@@ -1,5 +1,3 @@
-
-
 # Architekturdokumentation: Automatisiertes Exoscale VM-Monitoring
 
 **Erstellt von:** Georg Grünwald  
@@ -73,7 +71,7 @@ Dies garantiert einen deterministischen Pipeline-Status und eine nahtlose Überg
 
 Um die `cloud-init.yml` übersichtlich und wartbar zu halten, wurden große Konfigurationsblöcke (wie das Caddyfile und die Docker Compose Konfiguration)  in separate `.tftpl`-Dateien (Terraform Templates) ausgelagert. Die `openapi.yml` wurde ebenfalls ausgegliedert. Terraform rendert diese Dateien zur Laufzeit, injiziert die benötigten dynamischen Variablen und fügt sie erst im letzten Schritt nahtlos ein.
 
-## Strategisches API-Design: Der Netdata-Wrapper
+### Strategisches API-Design: Der Netdata-Wrapper
 
 Ein zentraler Aspekt dieser Architektur ist die Implementierung einer eigenen OpenAPI-Spezifikation. Während das Netdata-Backend eine extrem umfassende API mit tausenden Metriken bereitstellt, fungiert unser Ansatz als Lightweight-Wrapper. 
 
