@@ -39,8 +39,8 @@ locals {
 
   # ICMP Rules (No Ports)
   icmp_rules = {
-    "ping-v4" = { protocol = "ICMP",   cidr = "0.0.0.0/0" }
-    "ping-v6" = { protocol = "ICMPv6", cidr = "::/0" }
+    "ping-v4" = { protocol = "ICMP",   cidr = "0.0.0.0/0", type = 8,   code = 0 }
+    "ping-v6" = { protocol = "ICMPv6", cidr = "::/0",      type = 128, code = 0 }
   }
 }
 
@@ -69,6 +69,8 @@ resource "exoscale_security_group_rule" "ping" {
   type              = "INGRESS"
   protocol          = each.value.protocol
   cidr              = each.value.cidr
+  icmp_type         = each.value.type
+  icmp_code         = each.value.code
 }
 
 # --- Compute Instance ---
