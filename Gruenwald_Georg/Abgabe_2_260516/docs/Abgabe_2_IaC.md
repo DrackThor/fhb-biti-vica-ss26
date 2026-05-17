@@ -59,13 +59,13 @@ Die Anforderung, Daten sowohl optisch als auch maschinenlesbar
 auszuliefern, wurde durch eine Trennung auf Subdomain-Ebene realisiert,
 konfiguriert im Caddyfile:
 
-#### HTML Dashboard (`dashboard.gmgruenwald.biti-fhb.org`)
+#### HTML Dashboard (`dashboard.gruenwald.biti-fhb.org`)
 
 - Leitet den Traffic sicher an das Netdata-Dashboard weiter.
 - Eine Quality-of-Life-Regel leitet den Root-Pfad direkt auf die neue
   `/v3/` UI von Netdata um, um interne Routing-Fehler zu vermeiden.
 
-#### JSON API (`api.gmgruenwald.biti-fhb.org`)
+#### JSON API (`api.gruenwald.biti-fhb.org`)
 
 - Leitet den Traffic an den Swagger UI Container weiter.
 - Dort wird eine über Cloud-Init dynamisch injizierte `openapi.yml`
@@ -146,12 +146,6 @@ als Lightweight-Wrapper.
 - **Dokumentation:** Die Spezifikation bietet menschenlesbare
   Erklärungen für technische Metriken, was die Transparenz der
   gelieferten Daten erhöht.
-
-- **Sicherheitsaspekt (API Surface Reduction):** Durch das gezielte
-  Exponieren von Endpunkten wird die Angriffsfläche deutlich
-  verringert. Ein externer Nutzer sieht nur das, was für die
-  Überwachung der Applikation notwendig ist, was dem
-  Sicherheitsprinzip der "Minimalen Exposition" entspricht.
 
 ### Strict CORS Management
 
