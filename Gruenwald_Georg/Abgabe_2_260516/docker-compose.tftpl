@@ -18,7 +18,6 @@ services:
       - 'apparmor:unconfined'
     # Tells Netdata where to find the host's etc directory for OS detection and Docker socket for container monitoring
     environment:
-    - NETDATA_CLAIM_TOKEN=
     - DOCKER_HOST=unix:///var/run/docker.sock
     - HOST_ETC=/host/etc
     volumes:
