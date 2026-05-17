@@ -20,6 +20,8 @@ variable "exoscale_api_secret" {
 # ==========================================
 # COMPUTE & LOCATION SETTINGS
 # ==========================================
+# These variables establish the physical target data center and the naming
+# base used to uniquely identify and isolate your resources within Exoscale.
 
 variable "zone" {
   type        = string
@@ -36,7 +38,7 @@ variable "vm_name" {
 # ==========================================
 # DNS & DOMAIN CONFIGURATION
 # ==========================================
-# These variables are concatenated in main.tf to dynamically build 
+# These variables are concatenated in locals.tf to dynamically build 
 # the Fully Qualified Domain Names (FQDNs) for the application endpoints.
 
 variable "root_domain" {
