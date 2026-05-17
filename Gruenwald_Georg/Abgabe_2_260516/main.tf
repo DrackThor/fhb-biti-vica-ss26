@@ -28,12 +28,19 @@ data "exoscale_domain" "university_zone" {
 # --- Security & Network ---
 # Resource-specific locals defined right where they are used for maximum readability
 locals {
+  # TCP Rules (Requires Ports)
   sg_rules = {
     "http-v4"  = { port = 80,  cidr = "0.0.0.0/0" }
     "https-v4" = { port = 443, cidr = "0.0.0.0/0" }
     "http-v6"  = { port = 80,  cidr = "::/0" }
     "https-v6" = { port = 443, cidr = "::/0" }
     "ssh-v4"   = { port = 22,  cidr = var.ssh_allowed_cidr }
+  }
+
+  # ICMP Rules (No Ports)
+  icmp_rules = {
+    "ping-v4" = { protocol = "ICMP",   cidr = "0.0.0.0/0" }
+    "ping-v6" = { protocol = "ICMPv6", cidr = "::/0" }
   }
 }
 
@@ -42,6 +49,9 @@ resource "exoscale_security_group" "sg" {
   description = "Allows HTTP, HTTPS, and SSH"
 }
 
+# Dynamically provisions all ingress rules from the local map 
+# to eliminate duplicate resource blocks.
+# --- TCP Loop ---
 resource "exoscale_security_group_rule" "web" {
   for_each          = local.sg_rules
   security_group_id = exoscale_security_group.sg.id
@@ -50,6 +60,15 @@ resource "exoscale_security_group_rule" "web" {
   cidr              = each.value.cidr
   start_port        = each.value.port
   end_port          = each.value.port
+}
+
+# --- ICMP Loop ---
+resource "exoscale_security_group_rule" "ping" {
+  for_each          = local.icmp_rules
+  security_group_id = exoscale_security_group.sg.id
+  type              = "INGRESS"
+  protocol          = each.value.protocol
+  cidr              = each.value.cidr
 }
 
 # --- Compute Instance ---
@@ -61,6 +80,8 @@ resource "exoscale_compute_instance" "vm" {
   disk_size          = 50
   security_group_ids = [exoscale_security_group.sg.id]
 
+  # Injecting pre-rendered configuration files (Caddy, Docker, OpenAPI) directly 
+  # into the cloud-init YAML to avoid writing complex file-creation bash scripts.
   user_data = templatefile("${path.module}/cloud-init.yml", {
     openapi_spec = templatefile("${path.module}/openapi.tftpl", {
       stats_domain = local.stats_fqdn
