@@ -5,7 +5,9 @@ name: Destroy Exoscale Infrastructure
 # Trigger the workflow manually from the GitHub Actions tab
 on:
   workflow_dispatch:
-   
+  push:
+    branches:
+      - feature/webserver-http
 
 # Define the jobs to be run in this workflow
 jobs:
@@ -46,5 +48,5 @@ jobs:
       - name: Terraform destroy plan
         run: terraform plan -destroy
         # Destroy the Terraform-managed infrastructure, which will delete all resources defined in the configuration files, without asking for confirmation due to the -auto-approve flag
-      #- name: Terraform destroy
-      #  run: terraform destroy -auto-approve
+      - name: Terraform destroy
+        run: terraform destroy -auto-approve

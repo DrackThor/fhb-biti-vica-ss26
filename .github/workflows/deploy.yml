@@ -5,9 +5,7 @@ name: Deploy Exoscale Infrastructure
 # Trigger the workflow manually from the GitHub Actions tab
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - feature/webserver-http
+  
 
 # Define the jobs to be run in this workflow
 jobs:
