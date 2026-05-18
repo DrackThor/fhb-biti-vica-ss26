@@ -22,6 +22,7 @@ jobs:
       TF_VAR_exoscale_key: ${{ secrets.EXOSCALE_API_KEY }}
       TF_VAR_exoscale_secret: ${{ secrets.EXOSCALE_SECRET_KEY }}
       TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+      TF_TOKEN_app_terraform_io: ${{ secrets.TF_API_TOKEN }}
 
     # Set the default working directory for all steps in this job to the specified path
     # Important because the Terraform configuration files are located in this directory, seen from the root of the repository
@@ -50,5 +51,5 @@ jobs:
       - name: Terraform plan
         run: terraform plan
         # Apply the Terraform configuration, which will create, update, or delete resources as defined in the configuration files, without asking for confirmation due to the -auto-approve flag
-      #- name: Terraform apply
-      #  run: terraform apply -auto-approve
+      - name: Terraform apply
+        run: terraform apply -auto-approve
