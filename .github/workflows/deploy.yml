@@ -11,7 +11,8 @@ jobs:
   # Name of the job - chosen to be 'deploy'
   deploy:
     # GitHub starts a VM with the latest Ubuntu image to run this job
-
+    runs-on: ubuntu-latest
+    
     # Environment variables for Terraform, using secrets stored in GitHub for security
     # TF_VAR is linked to Terraform variables to be written with equivalent names in the Terraform configuration files and on GitHub secrets
     env:
