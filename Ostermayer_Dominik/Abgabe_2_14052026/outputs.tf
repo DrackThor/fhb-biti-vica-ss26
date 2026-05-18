@@ -10,5 +10,5 @@ output "website_url" {
 }
 
 output "api_url" {
-  value = "http://${exoscale_compute_instance.web.public_ip_address}/api.json"
+  value = "http://${exoscale_compute_instance.web.public_ip_address}/api"
 }
