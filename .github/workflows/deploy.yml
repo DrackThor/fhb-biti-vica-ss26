@@ -3,8 +3,11 @@
 name: Deploy Exoscale Infrastructure
 
 # Trigger the workflow manually from the GitHub Actions tab
-'on':
+on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
 
 # Define the jobs to be run in this workflow
 jobs:
@@ -46,5 +49,5 @@ jobs:
       - name: Terraform plan
         run: terraform plan
         # Apply the Terraform configuration, which will create, update, or delete resources as defined in the configuration files, without asking for confirmation due to the -auto-approve flag
-      - name: Terraform apply
-        run: terraform apply -auto-approve
+      #- name: Terraform apply
+      #  run: terraform apply -auto-approve
