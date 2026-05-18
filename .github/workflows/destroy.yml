@@ -5,9 +5,7 @@ name: Destroy Exoscale Infrastructure
 # Trigger the workflow manually from the GitHub Actions tab
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - feature/webserver-http  
+   
 
 # Define the jobs to be run in this workflow
 jobs:
@@ -22,6 +20,7 @@ jobs:
       TF_VAR_exoscale_key: ${{ secrets.EXOSCALE_API_KEY }}
       TF_VAR_exoscale_secret: ${{ secrets.EXOSCALE_SECRET_KEY }}
       TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+      TF_TOKEN_app_terraform_io: ${{ secrets.TF_API_TOKEN }}
 
     # Set the default working directory for all steps in this job to the specified path
     # Important because the Terraform configuration files are located in this directory, seen from the root of the repository
