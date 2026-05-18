@@ -21,6 +21,7 @@ jobs:
     env:
       TF_VAR_exoscale_key: ${{ secrets.EXOSCALE_API_KEY }}
       TF_VAR_exoscale_secret: ${{ secrets.EXOSCALE_SECRET_KEY }}
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
 
     # Set the default working directory for all steps in this job to the specified path
     # Important because the Terraform configuration files are located in this directory, seen from the root of the repository

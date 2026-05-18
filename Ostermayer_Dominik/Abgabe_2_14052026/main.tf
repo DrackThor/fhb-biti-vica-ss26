@@ -64,7 +64,7 @@ resource "exoscale_security_group_rule" "ssh" {
 # Create ssh-key resource to allow SSH access to the instance
 resource "exoscale_ssh_key" "ssh" {
   name       = "ssh-key"
-  public_key = file(pathexpand("~/.ssh/id_ed25519.pub"))
+  public_key = var.ssh_public_key
 }
 
 
