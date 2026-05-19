@@ -1,6 +1,40 @@
 # Vollständige Projektdokumentation – Exoscale Webserver mit Terraform, Cloud-Init und Nginx (Version HTTP)
 
-## Projektziel
+---
+
+## Inhaltsverzeichnis
+
+- [1. Projektziel](#1-Projektziel)
+- [2. Verwendete Technologien](#2-Verwendete_Technologien)
+- [3. Projektstruktur](#3-Projektstruktur)
+- [4. Infrastrukturübersicht](#4-Infrastrukturübersicht)
+- [5. Terraform Komponenten](#5-Terraform_Komponenten)
+- [6. Exoscale_Provider](#6-Exoscale_Provider)
+- [7. Provider_Konfiguration](#7-Provider_Konfiguration)
+- [8. variables.tf](#8-variables_tf)
+- [9. terraform.tfvars](#9-terraform_tfvars)
+- [10. Ubuntu_Template](#10-Ubuntu_Template)
+- [11. SSH_Key_Resource](#11-SSH_Key_Resource)
+- [12. VM_Resource](#12-VM_Resource)
+- [13. Warum_user_data?](#13-Warum_user_data)
+- [14. Security_Groups](#14-Security_Groups)
+- [15. HTTP_Rule](#15-HTTP_Rule)
+- [16. SSH_Rule](#16-SSH_Rule)
+- [17. outputs.tf](#17-outputs_tf)
+- [18. cloud-init.yaml](#18-cloud_init_yaml)
+- [19. Benutzerverwaltung](#19-Benutzerverwaltung)
+- [20. Nginx_Config](#20-Nginx_Config)
+- [21. Terraform_Commands](#21-Terraform_Commands)
+- [22. SSH_Zugriff](#22-SSH_Zugriff)
+- [23. .gitignore](#23-gitignore)
+- [24. GitHub_Actions](#24-GitHub_Actions)
+- [25. Aktueller_Projektstatus_auf_Basis_HTTP](#25-Aktueller_Projektstatus_auf_Basis_HTTP)
+- [26. Geplante_Erweiterungen](#26-Geplante_Erweiterungen)
+- [27. Fazit](#27-Fazit)
+
+---
+
+## 1. Projektziel
 
 Ziel dieser Aufgabe ist die automatisierte Bereitstellung einer virtuellen Maschine (VM) in Exoscale mittels Terraform. Die VM soll einen HTTP-Endpunkt bereitstellen und technische Systeminformationen über das System als JSON-API ausgeben.
 
@@ -8,7 +42,7 @@ Die gesamte Infrastruktur und Konfiguration wird automatisiert erstellt.
 
 ---
 
-# Verwendete Technologien
+## 2. Verwendete_Technologien
 
 | Technologie | Zweck |
 |---|---|
@@ -23,7 +57,7 @@ Die gesamte Infrastruktur und Konfiguration wird automatisiert erstellt.
 
 ---
 
-# Projektstruktur
+## 3. Projektstruktur
 
 ```text
 README.md
@@ -35,6 +69,7 @@ Abgabe_2_Dominik/
 ├── outputs.tf
 ├── terraform.tfvars
 ├── cloud-init.yaml
+|── cloud.tf
 ├── .gitignore
 └── .github/
     └── workflows/
@@ -44,7 +79,7 @@ Abgabe_2_Dominik/
 
 ---
 
-# Infrastrukturübersicht
+## 4. Infrastrukturübersicht
 
 Die Lösung erstellt automatisiert:
 
@@ -57,9 +92,9 @@ Die Lösung erstellt automatisiert:
 
 ---
 
-# Terraform Komponenten
+## 5. Terraform_Komponenten
 
-## main.tf
+### main.tf
 
 Die Datei `main.tf` enthält die Hauptkonfiguration der Infrastruktur.
 
@@ -74,7 +109,7 @@ Folgende Ressourcen werden erstellt:
 
 ---
 
-## Exoscale Provider
+## 6. Exoscale_Provider
 
 ```hcl
 terraform {
@@ -95,7 +130,7 @@ Die Version wurde fixiert, damit reproduzierbare Deployments möglich sind.
 
 ---
 
-## Provider Konfiguration
+## 7. Provider_Konfiguration
 
 ```hcl
 provider "exoscale" {
@@ -112,7 +147,7 @@ Die Keys werden nicht direkt im Code gespeichert, sondern über Variablen eingel
 
 ---
 
-# variables.tf
+## 8. variables_tf
 
 ```hcl
 variable "exoscale_key" {
@@ -127,6 +162,12 @@ variable "zone" {
   type    = string
   default = "at-vie-1"
 }
+
+variable "ssh_public_key" {
+  type        = string
+  sensitive   = true
+  description = "Public SSH key used for VM access"
+}
 ```
 
 ### Erklärung
@@ -136,25 +177,27 @@ Die Datei definiert Variablen für:
 - API Key
 - Secret Key
 - Exoscale Zone
+- SSH Public Key
 
 ---
 
-# terraform.tfvars
+## 9. terraform_tfvars
 
 ```hcl
 exoscale_key    = "EXAMPLE_KEY"
 exoscale_secret = "EXAMPLE_SECRET"
+ssh_public_key = "SSH PUBLIC KEY" (außerhalb IaC erstellt und hier eingefügt)
 ```
 
 ### Erklärung
 
 Die Datei enthält die tatsächlichen Zugangsdaten.
 
-Sie wird über `.gitignore` vom Git Tracking ausgeschlossen.
+Sie wird über `.gitignore` vom Git Tracking ausgeschlossen (Security Überlegungen).
 
 ---
 
-# Ubuntu Template
+## 10. Ubuntu_Template
 
 ```hcl
 data "exoscale_template" "ubuntu" {
@@ -171,12 +214,12 @@ Dadurch muss keine feste Template-ID verwendet werden.
 
 ---
 
-# SSH Key Resource
+## 11. SSH_Key_Resource
 
 ```hcl
 resource "exoscale_ssh_key" "ssh" {
   name       = "ssh-key"
-  public_key = file(pathexpand("~/.ssh/id_ed25519.pub"))
+  public_key = var.ssh_public_key
 }
 ```
 
@@ -207,7 +250,13 @@ users:
 sssh_authorized_keys:
 ssh-ed25519 HTEDSAAA..... example@example.com
 ```
-- kopiert werden (komplette Zeile kopieren)
+und in terraform.tfvars
+
+```bash
+ssh_public_key = "ssh-ed25519 HTEDSAAA..... example@example.com"
+```
+
+kopiert werden (komplette Zeile kopieren)
 
 Terraform lädt den lokalen Public SSH Key zu Exoscale hoch.
 
@@ -217,7 +266,7 @@ Verwendet wird ein bereits zuvor lokal erstellter SSH Key.
 
 ---
 
-# VM Resource
+## 12. VM_Resource
 
 ```hcl
 resource "exoscale_compute_instance" "web" {
@@ -241,7 +290,7 @@ resource "exoscale_compute_instance" "web" {
 
 ---
 
-## Erklärung der Parameter
+### Erklärung der Parameter
 
 | Parameter | Bedeutung |
 |---|---|
@@ -256,7 +305,7 @@ resource "exoscale_compute_instance" "web" {
 
 ---
 
-# Warum user_data?
+## 13. Warum_user_data
 
 ```hcl
 user_data = file("${path.module}/cloud-init.yaml")
@@ -276,9 +325,9 @@ Cloud-Init ermöglicht somit vollständige Serverautomatisierung.
 
 ---
 
-# Security Groups
+## 14. Security_Groups
 
-## Security Group
+### Security Group
 
 ```hcl
 resource "exoscale_security_group" "web" {
@@ -286,13 +335,13 @@ resource "exoscale_security_group" "web" {
 }
 ```
 
-### Erklärung
+#### Erklärung
 
 Die Security Group fungiert als Firewall Container.
 
 ---
 
-# HTTP Rule
+## 15. HTTP_Rule
 
 ```hcl
 resource "exoscale_security_group_rule" "http" {
@@ -307,11 +356,11 @@ resource "exoscale_security_group_rule" "http" {
 
 ### Erklärung
 
-Erlaubt HTTP Traffic auf Port 80.
+Erlaubt HTTP Traffic auf Port 80 von jeder IP eingehend auf VM.
 
 ---
 
-# SSH Rule
+## 16. SSH_Rule
 
 ```hcl
 resource "exoscale_security_group_rule" "ssh" {
@@ -326,11 +375,11 @@ resource "exoscale_security_group_rule" "ssh" {
 
 ### Erklärung
 
-Erlaubt SSH Zugriff auf Port 22.
+Erlaubt SSH Zugriff auf Port 22 von jeder IP eingehend auf VM.
 
 ---
 
-# outputs.tf
+## 17. outputs_tf
 
 ```hcl
 output "public_ip" {
@@ -346,7 +395,7 @@ output "api_url" {
 }
 ```
 
-### Erklärung
+#### Erklärung
 
 Terraform gibt automatisch:
 
@@ -358,9 +407,9 @@ nach `terraform apply` aus.
 
 ---
 
-# cloud-init.yaml
+## 18. cloud_init_yaml
 
-## Zweck
+### Zweck
 
 Cloud-Init automatisiert die vollständige Linux-Erstkonfiguration.
 
@@ -368,7 +417,7 @@ Die Konfiguration wird automatisch beim ersten Boot der VM ausgeführt.
 
 ---
 
-# Verwendete Bereiche
+## Verwendete Bereiche
 
 | Bereich | Zweck |
 |---|---|
@@ -380,7 +429,7 @@ Die Konfiguration wird automatisch beim ersten Boot der VM ausgeführt.
 
 ---
 
-# Benutzerverwaltung
+## 19. Benutzerverwaltung
 
 ```yaml
 users:
@@ -407,7 +456,7 @@ Der Standarduser `ubuntu` bleibt zusätzlich bestehen.
 
 ---
 
-# nginx Struktur
+## 20. Nginx_Config
 
 Es wird die typische Debian/Ubuntu nginx Struktur verwendet:
 
@@ -418,7 +467,7 @@ Es wird die typische Debian/Ubuntu nginx Struktur verwendet:
 
 ---
 
-# Eigene Website
+### Eigene Website
 
 Die Default nginx Website wird deaktiviert:
 
@@ -435,7 +484,7 @@ ln -sf /etc/nginx/sites-available/meine-website \
 
 ---
 
-# Warum wird default entfernt?
+### Warum wird default entfernt?
 
 Ubuntu liefert standardmäßig eine nginx Testseite mit.
 
@@ -447,9 +496,9 @@ Durch das Entfernen werden:
 
 ---
 
-# API Endpunkt
+### API Endpunkt
 
-## nginx API Route
+#### nginx API Route
 
 ```nginx
 location /api {
@@ -460,7 +509,7 @@ location /api {
 
 ---
 
-# Erklärung von alias
+### Erklärung von alias
 
 Der Browser ruft auf:
 
@@ -478,7 +527,7 @@ Dadurch entsteht eine API URL.
 
 ---
 
-# Dynamische JSON API
+### Dynamische JSON API
 
 Die API Datei wird dynamisch im `runcmd` Block erzeugt.
 
@@ -499,7 +548,7 @@ Folgende Informationen werden gesammelt:
 
 ---
 
-# Beispiel API Ausgabe
+### Beispiel API Ausgabe
 
 ```json
 {
@@ -520,7 +569,7 @@ Folgende Informationen werden gesammelt:
 
 ---
 
-# Vollständiger runcmd Ablauf
+### Vollständiger runcmd Ablauf
 
 Der `runcmd` Block führt folgende Schritte aus:
 
@@ -536,7 +585,9 @@ Der `runcmd` Block führt folgende Schritte aus:
 
 ---
 
-# Warum destroy + apply?
+## 21. Terraform_Commands
+
+### Warum_destroy_und_apply?
 
 Cloud-Init läuft standardmäßig nur beim ersten Boot.
 
@@ -551,13 +602,13 @@ Dadurch wird die VM vollständig neu erzeugt.
 
 ---
 
-# terraform init
+### terraform_init
 
 ```powershell
 terraform init
 ```
 
-### Zweck
+#### Zweck
 
 - lädt Provider
 - initialisiert Terraform
@@ -565,37 +616,37 @@ terraform init
 
 ---
 
-# terraform fmt
+### terraform fmt
 
 ```powershell
 terraform fmt
 ```
 
-### Zweck
+#### Zweck
 
 Formatiert Terraform Dateien automatisch.
 
 ---
 
-# terraform validate
+### terraform validate
 
 ```powershell
 terraform validate
 ```
 
-### Zweck
+#### Zweck
 
 Prüft Syntax und Konfiguration.
 
 ---
 
-# terraform plan
+### terraform plan
 
 ```powershell
 terraform plan
 ```
 
-### Zweck
+#### Zweck
 
 Zeigt geplante Änderungen an.
 
@@ -603,13 +654,13 @@ Es entstehen dabei noch keine Ressourcen.
 
 ---
 
-# terraform apply
+### terraform apply
 
 ```powershell
 terraform apply
 ```
 
-### Zweck
+#### Zweck
 
 Erstellt die Infrastruktur tatsächlich in Exoscale.
 
@@ -617,13 +668,13 @@ Ab diesem Zeitpunkt entstehen Cloud-Ressourcen und potenzielle Kosten.
 
 ---
 
-# terraform destroy
+### terraform destroy
 
 ```powershell
 terraform destroy
 ```
 
-### Zweck
+#### Zweck
 
 Löscht die gesamte Infrastruktur wieder.
 
@@ -635,9 +686,9 @@ Dies ist wichtig für:
 
 ---
 
-# SSH Zugriff
+## 22. SSH_Zugriff
 
-## Verbindung
+### Verbindung
 
 ```bash
 ssh ubuntu@IP
@@ -651,7 +702,7 @@ ssh tux@IP
 
 ---
 
-# Warum funktioniert SSH ohne Passwort?
+### Warum funktioniert SSH ohne Passwort?
 
 Die Authentifizierung erfolgt über:
 
@@ -660,7 +711,7 @@ Die Authentifizierung erfolgt über:
 
 ---
 
-# .gitignore
+## 23. gitignore
 
 ```gitignore
 .terraform/
@@ -679,7 +730,7 @@ override.tf.json
 
 ---
 
-# Warum .gitignore wichtig ist
+### Warum .gitignore wichtig ist
 
 Es verhindert das versehentliche Hochladen von:
 
@@ -690,67 +741,247 @@ Es verhindert das versehentliche Hochladen von:
 
 ---
 
-# Git Workflow
+## 24. GitHub_Actions
 
-- Repository klonen
+### Ziel
 
-- Repo forken
-
-- Feature Branch erstellen
-
-- Änderungen committen
-
-- In das Repo pushen
-
-- PR erstellen
+Ziel war die Bereitstellung einer VM inklusive automatisierter Konfiguration, API-Endpunkt sowie CI/CD-Deployment via GitHub Workflow.
 
 ---
 
-# GitHub Actions
+### Vorgehensweise
 
-## Ziel
+Im Rahmen der Aufgabe wurde eine automatisierte Webserver-Infrastruktur auf Basis von:
 
-Terraform soll automatisiert über GitHub ausgeführt werden.
+- Terraform
+- Exoscale
+- Cloud-Init
+- GitHub Actions
+- HCP Terraform (Remote State)
+- Nginx
 
-Geplant sind:
+implementiert.
 
-- deploy.yml
-- destroy.yml
+### Git-Workflow
+
+#### Repository-Struktur
+
+```text
+fhb-biti-vica-ss26/
+├── .github/
+│   └── workflows/
+│       ├── deploy.yml
+│       └── destroy.yml
+│
+└── Ostermayer_Dominik/
+    └── Abgabe_2_14052026/
+        ├── main.tf
+        ├── variables.tf
+        ├── outputs.tf
+        ├── cloud.tf
+        ├── cloud-init.yaml
+        └─ terraform.tfvars
+        
+```
+---
+
+### Git Ignore
+
+Folgende Dateien wurden bewusst vom Repository ausgeschlossen:
+
+```gitignore
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+```
+
+Dadurch werden sensible Daten und lokale States nicht veröffentlicht.
 
 ---
 
-# GitHub Secrets
+### GitHub Actions Workflow
 
-Folgende Secrets werden im Repository hinterlegt:
+#### Ziel
+
+Automatisierung von:
+
+- Terraform Init
+- Terraform Validate
+- Terraform Plan
+- Terraform Apply
+- Terraform Destroy
+
+---
+
+### Deploy Workflow
+
+Datei:
+
+```text
+.github/workflows/deploy.yml
+```
+
+#### Funktionen
+
+Der Workflow führt automatisiert aus:
+
+```text
+terraform init
+terraform validate
+terraform plan
+terraform apply -auto-approve
+```
+
+---
+
+#### Trigger
+
+Während der Testphase:
+
+```yaml
+on:
+  push:
+    branches:
+      - feature/webserver-http
+```
+
+Später produktiv:
+
+```yaml
+on:
+  workflow_dispatch:
+```
+
+---
+
+### Destroy Workflow
+
+Datei:
+
+```text
+.github/workflows/destroy.yml
+```
+
+### Funktionen
+
+Der Workflow führt automatisiert aus:
+
+```text
+terraform destroy -auto-approve
+```
+
+Damit kann die Infrastruktur vollständig automatisiert entfernt werden.
+
+---
+
+### HCP Terraform Remote State
+
+#### Problemstellung
+
+Ein lokaler Terraform State funktioniert nicht zuverlässig mit GitHub Actions, da der GitHub Runner keinen Zugriff auf lokale Dateien besitzt.
+
+---
+
+#### Lösung
+
+Verwendung von:
+
+```text
+HCP Terraform / Terraform Cloud
+```
+
+Dadurch wird der Terraform State zentral gespeichert.
+
+---
+
+#### Terraform Cloud Konfiguration
+
+Datei:
+
+```text
+cloud.tf
+```
+
+Beispiel:
+
+```hcl
+terraform {
+  cloud {
+    organization = "dominik-vica"
+
+    workspaces {
+      name = "abgabe-2-exoscale-webserver"
+    }
+  }
+}
+```
+
+---
+
+### GitHub Secrets
+
+Folgende Secrets wurden im GitHub Repository hinterlegt:
 
 | Secret | Zweck |
 |---|---|
-| EXOSCALE_API_KEY | API Key |
-| EXOSCALE_SECRET_KEY | Secret Key |
+| EXOSCALE_API_KEY | Exoscale API Zugriff |
+| EXOSCALE_SECRET_KEY | Exoscale Secret |
+| SSH_PUBLIC_KEY | SSH Zugriff auf VM |
+| TF_API_TOKEN | Zugriff auf HCP Terraform |
 
 ---
 
-# Aktueller Projektstatus
+### SSH-Konzept
 
-## Bereits umgesetzt
+#### Umsetzung
 
-- Terraform Infrastruktur
+Der SSH Public Key wird:
+
+- lokal via Terraform Variable
+- in GitHub Actions via Secret
+
+übergeben.
+
+Beispiel:
+
+```hcl
+variable "ssh_public_key" {
+  type      = string
+  sensitive = true
+}
+```
+
+Dadurch bleibt der Private Key ausschließlich lokal gespeichert.
+
+---
+
+## 25. Aktueller_Projektstatus_auf_Basis_HTTP
+
+### Bereits umgesetzt
+
+- Terraform Infrastruktur (IaC)
 - Exoscale VM
 - Ubuntu Deployment
 - Cloud-Init Automation
-- nginx Webserver
+- Nginx Webserver
 - Security Groups
 - SSH Zugriff
 - zusätzlicher Linux User
 - JSON API
 - Terraform Outputs
 - Git Struktur
+- Remote Terraform State
+- CI/CD via GitHub Actions
+- Vollautomatisiertes Destroy
+- Nachvollziehbare Git-Historie
+- Sichere Secret-Verwaltung
 
 ---
 
-# Geplante Erweiterungen
+## 26. Geplante_Erweiterungen
 
-## Optional
+### Optional
 
 - DNS/FQDN
 - HTTPS
@@ -758,15 +989,14 @@ Folgende Secrets werden im Repository hinterlegt:
 - Certbot
 - Domain Variablen
 - templatefile()
-- vollständiger GitHub CI/CD Workflow
 
 ---
 
-# Fazit
+## 27. Fazit
 
 Die Lösung implementiert eine automatisierte Cloud Infrastruktur auf Basis von Terraform und Exoscale.
 
-Die gesamte Serverbereitstellung inklusive Betriebssystemkonfiguration, Benutzerverwaltung, nginx Konfiguration und API Erstellung erfolgt automatisiert über Infrastructure as Code (IaC).
+Die gesamte Serverbereitstellung inklusive Betriebssystemkonfiguration, Benutzerverwaltung, Nginx Konfiguration und API Erstellung wird über Infrastructure as Code (IaC) und via GitHub CI/CD Workflow Actions vollständig automatisiert deployed.
 
 Dadurch entsteht eine reproduzierbare, versionierbare und professionell strukturierte DevOps Lösung.
 
