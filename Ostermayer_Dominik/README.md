@@ -2,7 +2,7 @@
 
 ## Beschreibung
 
-Automatisierte Bereitstellung eines Ubuntu NGINX-Webservers in Exoscale mittels Terraform und Cloud-Init.
+Automatisierte Bereitstellung eines Ubuntu NGINX-Webservers in Exoscale mittels Terraform und Cloud-Init via vollautomatisierte GitHub CI/CD-Workflow (GitHub Actions).
 
 Die Lösung erstellt:
 
@@ -30,17 +30,24 @@ Die Lösung erstellt:
 - Terraform installiert
 - Exoscale API Keys
   
-### SSH Key
+## SSH Key
 
 Aufgrund von Sicherheitsüberlegungen im Zusammenhang mit der SSH-Key-Pair-Erstellgung im Zuge IaC (Private Key landet gezwungenermaßen im State-File) soll die SSH-Key-Pair-Erstellung bereits vor "terraform plan" stattfinden oder es exiert ohnehin bereits ein lokaler Public Key des Systems, der verwendet werden kann.
 
+Der SSH Public Key wird:
 
-- Prüfen ob Key bereits vorhanden:
-- 
+- lokal via Terraform Variable
+- in GitHub Actions via Secret
+
+übergeben.
+
+
+Prüfen ob Key bereits vorhanden:
+  
 ```bash
 cat ~/.ssh/id_ed25519.pub
 ```
-- Wenn nicht dann SSH-Key-Gen:  
+Wenn nicht dann SSH-Key-Gen:  
   
 ```bash
 ssh-keygen -t ed25519
@@ -50,14 +57,26 @@ ssh-keygen -t ed25519
 ```bash
 cat ~/.ssh/id_ed25519.pub
 ```
-- SSH Public Key muss in Cloud-init.yaml unter
+SSH Public Key muss in Cloud-init.yaml unter
   
 ```bash
 users: 
 sssh_authorized_keys:
 ssh-ed25519 HTEDSAAA..... example@example.com
 ```
-- kopiert werden (komplette Zeile kopieren)
+und in terraform.tfvars
+
+```bash
+ssh_public_key = "ssh-ed25519 HTEDSAAA..... example@example.com"
+```
+
+kopiert werden (komplette Zeile kopieren).
+
+Terraform lädt den lokalen Public SSH Key zu Exoscale hoch.
+
+Dieser wird später automatisch in die VM eingebunden.
+
+Verwendet wird ein bereits zuvor lokal erstellter SSH Key.
 
 ---
 
@@ -131,7 +150,7 @@ ssh tux@IP
 
 ## Hinweise
 
-- SSH-Public-Key vor "terraform plan" in cloud-init.yaml kopieren
+- SSH-Public-Key vor "terraform plan" in cloud-init.yaml und terraform.tfvars kopieren
 - terraform.tfvars enthält Secrets und wird nicht committed.
 - Änderungen an cloud-init.yaml benötigen meist destroy + apply.
 - Security Groups erlauben HTTP (80) und SSH (22).
