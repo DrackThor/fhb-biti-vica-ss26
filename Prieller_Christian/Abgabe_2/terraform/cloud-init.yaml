@@ -1,0 +1,147 @@
+#cloud-config
+# Cloud-Init Konfiguration – wird beim ersten Boot ausgeführt
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - nginx
+  - openssl
+  - curl
+  - dmidecode
+
+write_files:
+  # Script das die VM-Infos sammelt
+  - path: /usr/local/bin/generate-vm-info.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+
+      PUBLIC_IP=$(curl -sf http://ifconfig.me || echo "N/A")
+      PRIVATE_IP=$(hostname -I | awk '{print $1}')
+      HOSTNAME=$(hostname)
+      OS=$(lsb_release -ds 2>/dev/null || cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)
+      KERNEL=$(uname -r)
+      ARCH=$(uname -m)
+      CPU_MODEL=$(lscpu | grep "Model name" | sed 's/.*:\s*//')
+      CPU_CORES=$(nproc)
+      MEM_TOTAL=$(free -h | awk '/Mem:/ {print $2}')
+      MEM_USED=$(free -h | awk '/Mem:/ {print $3}')
+      DISK_TOTAL=$(df -h / | awk 'NR==2 {print $2}')
+      DISK_USED=$(df -h / | awk 'NR==2 {print $3}')
+      DISK_FREE=$(df -h / | awk 'NR==2 {print $4}')
+      FS_TYPE=$(df -T / | awk 'NR==2 {print $2}')
+      VIRT_TYPE=$(systemd-detect-virt 2>/dev/null || echo "N/A")
+      HYPERVISOR=$(lscpu | grep "Hypervisor vendor" | sed 's/.*:\s*//' || echo "N/A")
+      UPTIME=$(uptime -p | sed 's/^up //')
+      BIOS_VENDOR=$(dmidecode -s bios-vendor 2>/dev/null || echo "N/A")
+      SYS_MANUFACTURER=$(dmidecode -s system-manufacturer 2>/dev/null || echo "N/A")
+      TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+
+      # JSON API
+      mkdir -p /var/www/html/api
+      cat > /var/www/html/api/vm-info <<EOF
+      {
+        "hostname": "$HOSTNAME",
+        "public_ip": "$PUBLIC_IP",
+        "private_ip": "$PRIVATE_IP",
+        "os": "$OS",
+        "kernel": "$KERNEL",
+        "architecture": "$ARCH",
+        "cpu_model": "$CPU_MODEL",
+        "cpu_cores": $CPU_CORES,
+        "memory_total": "$MEM_TOTAL",
+        "memory_used": "$MEM_USED",
+        "disk_total": "$DISK_TOTAL",
+        "disk_used": "$DISK_USED",
+        "disk_free": "$DISK_FREE",
+        "filesystem": "$FS_TYPE",
+        "virtualization": "$VIRT_TYPE",
+        "hypervisor": "$HYPERVISOR",
+        "bios_vendor": "$BIOS_VENDOR",
+        "system_manufacturer": "$SYS_MANUFACTURER",
+        "uptime": "$UPTIME",
+        "generated_at": "$TIMESTAMP"
+      }
+      EOF
+
+      # HTML Seite
+      cat > /var/www/html/index.html <<EOF
+      <!DOCTYPE html>
+      <html lang="de">
+      <head>
+        <meta charset="UTF-8">
+        <title>VM Info – Prieller</title>
+      </head>
+      <body>
+        <h1 style="color: green;">Virtualisierung</h1>
+        <h2>Aufgabe 2 – Christian Prieller</h2>
+        <h3>Technische Details der VM</h3>
+        <ul>
+          <li><b>Hostname:</b> $HOSTNAME</li>
+          <li><b>Public IP:</b> $PUBLIC_IP</li>
+          <li><b>Private IP:</b> $PRIVATE_IP</li>
+          <li><b>Betriebssystem:</b> $OS</li>
+          <li><b>Kernel:</b> $KERNEL</li>
+          <li><b>Architektur:</b> $ARCH</li>
+          <li><b>CPU:</b> $CPU_MODEL ($CPU_CORES Kerne)</li>
+          <li><b>Memory:</b> $MEM_USED / $MEM_TOTAL</li>
+          <li><b>Storage:</b> $DISK_USED / $DISK_TOTAL</li>
+          <li><b>Filesystem:</b> $FS_TYPE</li>
+          <li><b>Hypervisor:</b> $HYPERVISOR</li>
+          <li><b>Virtualisierung:</b> $VIRT_TYPE</li>
+          <li><b>BIOS:</b> $BIOS_VENDOR</li>
+          <li><b>Hersteller:</b> $SYS_MANUFACTURER</li>
+          <li><b>Uptime:</b> $UPTIME</li>
+        </ul>
+        <p>JSON API: <a href="/api/vm-info">/api/vm-info</a></p>
+        <hr>
+        <small>Erstellt am: $TIMESTAMP | Konfiguriert via CloudInit + Terraform</small>
+      </body>
+      </html>
+      EOF
+
+      chown -R www-data:www-data /var/www/html/
+
+  # nginx mit HTTPS
+  - path: /etc/nginx/sites-available/dashboard
+    content: |
+      server {
+          listen 80 default_server;
+          server_name _;
+          return 301 https://$host$request_uri;
+      }
+
+      server {
+          listen 443 ssl default_server;
+          server_name _;
+
+          ssl_certificate     /etc/nginx/ssl/selfsigned.crt;
+          ssl_certificate_key /etc/nginx/ssl/selfsigned.key;
+          ssl_protocols       TLSv1.2 TLSv1.3;
+
+          root /var/www/html;
+          index index.html;
+
+          location / {
+              try_files $uri $uri/ =404;
+          }
+
+          location /api/vm-info {
+              alias /var/www/html/api/vm-info;
+              default_type application/json;
+          }
+      }
+
+runcmd:
+  - mkdir -p /etc/nginx/ssl
+  - openssl req -x509 -nodes -days 365 -newkey rsa:2048
+      -keyout /etc/nginx/ssl/selfsigned.key
+      -out /etc/nginx/ssl/selfsigned.crt
+      -subj "/CN=prieller-vm"
+  - rm -f /etc/nginx/sites-enabled/default
+  - ln -sf /etc/nginx/sites-available/dashboard /etc/nginx/sites-enabled/dashboard
+  - nginx -t
+  - /usr/local/bin/generate-vm-info.sh
+  - systemctl enable nginx
+  - systemctl restart nginx
