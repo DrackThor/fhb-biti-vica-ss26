@@ -206,9 +206,6 @@ Die Verbindung ist mit TLS 1.2/1.3 verschlüsselt. Da ein self-signed Zertifikat
 
 ### VM löschen
 
-1. **Actions** Tab auf der GitHub-Seite > **"Destroy Infrastruktur"** > **"Run workflow"** > Branch **abgabe-2-prieller**
-2. Alle Ressourcen werden automatisch gelöscht
-
 1. Im GitHub Repository den **Actions** Tab öffnen
 2. Workflow **"Destroy Infrastruktur"** auswählen
 3. Auf **"Run workflow"** klicken, Branch **abgabe-2-prieller** auswählen
