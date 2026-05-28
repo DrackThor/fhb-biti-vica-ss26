@@ -3,6 +3,9 @@ name: "Destroy Infrastruktur"
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   destroy:
     runs-on: ubuntu-latest
@@ -12,34 +15,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: OpenTofu installieren
-        uses: opentofu/setup-opentofu@v1
         with:
-          tofu_version: "1.8.0"
+          ref: abgabe-2-prieller
 
-      - name: State laden
-        uses: actions/download-artifact@v4
-        with:
-          name: terraform-state
-          path: ./Prieller_Christian/Abgabe_2/terraform
+      - uses: opentofu/setup-opentofu@v1
 
       - name: Terraform Init
         run: tofu init
 
       - name: Terraform Destroy
-        run: tofu destroy -auto-approve -no-color
+        run: tofu destroy -auto-approve
         env:
           TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
           TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
-
-      - name: State sichern
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: terraform-state
-          path: |
-            ./Prieller_Christian/Abgabe_2/terraform/terraform.tfstate
-            ./Prieller_Christian/Abgabe_2/terraform/terraform.tfstate.backup
-          retention-days: 90
-          overwrite: true
