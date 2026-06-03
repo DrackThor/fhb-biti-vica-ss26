@@ -1,0 +1,139 @@
+# ============================================================
+# destroy.yml – GitHub Actions Workflow: Infrastruktur löschen
+#
+# Dieser Workflow löscht alle von Terraform erstellten Exoscale
+# Ressourcen. Er wird NUR manuell ausgelöst (workflow_dispatch)
+# um versehentliches Löschen zu vermeiden.
+# ============================================================
+
+name: "🗑️ Destroy VM Infrastruktur"
+
+on:
+  # NUR manueller Trigger – kein automatisches Löschen!
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Bestätigung: Geben Sie 'destroy' ein um fortzufahren"
+        required: true
+        type: string
+      zone:
+        description: "Exoscale Zone (muss gleich sein wie beim Deploy)"
+        required: true
+        default: "at-vie-1"
+        type: choice
+        options:
+          - at-vie-1
+          - at-vie-2
+          - de-fra-1
+          - ch-gva-2
+
+# Verhindert parallele Runs (besonders wichtig bei Destroy!)
+concurrency:
+  group: terraform-deploy
+  cancel-in-progress: false
+
+jobs:
+  terraform-destroy:
+    name: "Infrastruktur löschen"
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: Abgabe_2_SCHURIAN/terraform
+
+    steps:
+      # --------------------------------------------------------
+      # Schritt 1: Sicherheitscheck – Bestätigung prüfen
+      # Verhindert versehentliches Löschen der Infrastruktur
+      # --------------------------------------------------------
+      - name: "🛡️ Bestätigung prüfen"
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "destroy" ]; then
+            echo "❌ FEHLER: Bestätigung falsch!"
+            echo "Bitte geben Sie genau 'destroy' ein (ohne Anführungszeichen)"
+            echo "Eingabe war: '${{ github.event.inputs.confirm }}'"
+            exit 1
+          fi
+          echo "✅ Bestätigung akzeptiert – Infrastruktur wird gelöscht"
+
+      # --------------------------------------------------------
+      # Schritt 2: Repository auschecken
+      # --------------------------------------------------------
+      - name: "📥 Repository auschecken"
+        uses: actions/checkout@v4
+
+      # --------------------------------------------------------
+      # Schritt 3: OpenTofu installieren
+      # --------------------------------------------------------
+      - name: "🔧 OpenTofu installieren"
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.8.0"
+
+      # --------------------------------------------------------
+      # Schritt 4: Terraform/OpenTofu initialisieren
+      # --------------------------------------------------------
+      - name: "🔄 OpenTofu initialisieren"
+        run: tofu init
+        env:
+          EXOSCALE_API_KEY:      ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET:   ${{ secrets.EXOSCALE_API_SECRET }}
+          AWS_ACCESS_KEY_ID:     ${{ secrets.EXOSCALE_API_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # --------------------------------------------------------
+      # Schritt 5: Aktuellen State anzeigen (vor dem Löschen)
+      # --------------------------------------------------------
+      - name: "📋 Aktuelle Ressourcen anzeigen"
+        run: tofu state list
+        env:
+          EXOSCALE_API_KEY:      ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET:   ${{ secrets.EXOSCALE_API_SECRET }}
+          AWS_ACCESS_KEY_ID:     ${{ secrets.EXOSCALE_API_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.EXOSCALE_API_SECRET }}
+        # Fehler ignorieren falls State leer ist (bereits gelöscht)
+        continue-on-error: true
+
+      # --------------------------------------------------------
+      # Schritt 6: Destroy Plan erstellen
+      # Zeigt was gelöscht werden würde
+      # --------------------------------------------------------
+      - name: "📋 Destroy Plan erstellen"
+        run: |
+          tofu plan -destroy \
+            -var="zone=${{ github.event.inputs.zone }}" \
+            -out=destroy-plan
+        env:
+          EXOSCALE_API_KEY:      ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET:   ${{ secrets.EXOSCALE_API_SECRET }}
+          AWS_ACCESS_KEY_ID:     ${{ secrets.EXOSCALE_API_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # --------------------------------------------------------
+      # Schritt 7: Terraform Destroy ausführen
+      # Löscht ALLE Ressourcen die Terraform erstellt hat
+      # --------------------------------------------------------
+      - name: "🗑️ OpenTofu Destroy ausführen"
+        run: tofu apply -auto-approve destroy-plan
+        env:
+          EXOSCALE_API_KEY:      ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET:   ${{ secrets.EXOSCALE_API_SECRET }}
+          AWS_ACCESS_KEY_ID:     ${{ secrets.EXOSCALE_API_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # --------------------------------------------------------
+      # Schritt 8: Bestätigung ausgeben
+      # --------------------------------------------------------
+      - name: "✅ Abschluss-Bericht"
+        run: |
+          echo "## 🗑️ Infrastruktur erfolgreich gelöscht" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Alle Exoscale Ressourcen wurden entfernt:" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ VM (compute instance) gelöscht" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Security Group gelöscht" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Der Terraform State im Object Storage bleibt erhalten" >> $GITHUB_STEP_SUMMARY
+          echo "und kann bei einem neuen Deploy wiederverwendet werden." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Ausgeführt von: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "Zeitpunkt: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
