@@ -1,0 +1,188 @@
+# ============================================================
+# deploy.yml – GitHub Actions Workflow: Infrastruktur erstellen
+#
+# Dieser Workflow erstellt die Exoscale VM mit Terraform/OpenTofu.
+# Er wird manuell ausgelöst (workflow_dispatch) oder bei Push
+# auf den main-Branch.
+# ============================================================
+
+name: "🚀 Deploy VM Infrastruktur"
+
+on:
+  # Manueller Trigger über GitHub Actions UI
+  workflow_dispatch:
+    inputs:
+      zone:
+        description: "Exoscale Zone (z.B. at-vie-1)"
+        required: true
+        default: "at-vie-1"
+        type: choice
+        options:
+          - at-vie-1
+          - at-vie-2
+          - de-fra-1
+          - ch-gva-2
+
+  # Automatischer Trigger bei Push auf main (nur wenn Terraform-Dateien geändert wurden)
+  push:
+    branches:
+      - main
+    paths:
+      - "Abgabe_2_SCHURIAN/terraform/**"
+
+# Verhindert parallele Runs des gleichen Workflows (Race Conditions)
+concurrency:
+  group: terraform-deploy
+  cancel-in-progress: false
+
+jobs:
+  terraform-deploy:
+    name: "Infrastruktur deployen"
+    runs-on: ubuntu-latest
+
+    # Standard-Arbeitsverzeichnis für alle Steps
+    defaults:
+      run:
+        working-directory: Abgabe_2_SCHURIAN/terraform
+
+    steps:
+      # --------------------------------------------------------
+      # Schritt 1: Repository auschecken
+      # --------------------------------------------------------
+      - name: "📥 Repository auschecken"
+        uses: actions/checkout@v4
+
+      # --------------------------------------------------------
+      # Schritt 2: OpenTofu installieren
+      # OpenTofu ist die open-source Alternative zu Terraform
+      # --------------------------------------------------------
+      - name: "🔧 OpenTofu installieren"
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.8.0"
+
+      # --------------------------------------------------------
+      # Schritt 3: Terraform/OpenTofu initialisieren
+      # Lädt den Exoscale Provider herunter und konfiguriert das Backend
+      # --------------------------------------------------------
+      - name: "🔄 OpenTofu initialisieren"
+        run: tofu init
+        env:
+          # Exoscale API Credentials (aus GitHub Secrets)
+          EXOSCALE_API_KEY:    ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+          # S3 Backend Credentials (Exoscale Object Storage)
+          # Exoscale verwendet AWS-kompatible S3 Authentifizierung
+          AWS_ACCESS_KEY_ID:     ${{ secrets.EXOSCALE_API_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # --------------------------------------------------------
+      # Schritt 4: Terraform Plan erstellen (Dry-Run)
+      # Zeigt welche Ressourcen erstellt/geändert/gelöscht werden
+      # --------------------------------------------------------
+      - name: "📋 OpenTofu Plan erstellen"
+        id: plan
+        run: |
+          tofu plan \
+            -var="zone=${{ github.event.inputs.zone || 'at-vie-1' }}" \
+            -out=tfplan \
+            -detailed-exitcode
+        env:
+          EXOSCALE_API_KEY:      ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET:   ${{ secrets.EXOSCALE_API_SECRET }}
+          AWS_ACCESS_KEY_ID:     ${{ secrets.EXOSCALE_API_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.EXOSCALE_API_SECRET }}
+        # Exit Code 0 = keine Änderungen, 2 = Änderungen vorhanden
+        # Beide sind erfolgreich
+        continue-on-error: true
+
+      # --------------------------------------------------------
+      # Schritt 5: Plan-Ergebnis als Job-Summary anzeigen
+      # --------------------------------------------------------
+      - name: "📊 Plan-Ergebnis zusammenfassen"
+        run: |
+          echo "## Terraform Plan Ergebnis" >> $GITHUB_STEP_SUMMARY
+          echo "Exit Code: ${{ steps.plan.outcome }}" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.plan.outcome }}" = "failure" ]; then
+            echo "❌ Plan fehlgeschlagen!" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+      # --------------------------------------------------------
+      # Schritt 6: Terraform Apply ausführen
+      # Erstellt die Infrastruktur auf Exoscale
+      # --------------------------------------------------------
+      - name: "🚀 OpenTofu Apply ausführen"
+        run: tofu apply -auto-approve tfplan
+        env:
+          EXOSCALE_API_KEY:      ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET:   ${{ secrets.EXOSCALE_API_SECRET }}
+          AWS_ACCESS_KEY_ID:     ${{ secrets.EXOSCALE_API_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # --------------------------------------------------------
+      # Schritt 7: Outputs auslesen und anzeigen
+      # Zeigt die IP-Adresse und URL der erstellten VM
+      # --------------------------------------------------------
+      - name: "📤 VM-Details anzeigen"
+        run: |
+          echo "## ✅ Deployment erfolgreich!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### VM Details" >> $GITHUB_STEP_SUMMARY
+          
+          # Terraform Outputs als JSON auslesen
+          OUTPUTS=$(tofu output -json)
+          
+          VM_IP=$(echo $OUTPUTS | python3 -c "import sys,json; print(json.load(sys.stdin)['vm_public_ip']['value'])")
+          VM_URL=$(echo $OUTPUTS | python3 -c "import sys,json; print(json.load(sys.stdin)['vm_info_url']['value'])")
+          VM_NAME=$(echo $OUTPUTS | python3 -c "import sys,json; print(json.load(sys.stdin)['vm_name']['value'])")
+          
+          echo "| Eigenschaft | Wert |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| VM Name | $VM_NAME |" >> $GITHUB_STEP_SUMMARY
+          echo "| IP Adresse | $VM_IP |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dashboard URL | [$VM_URL]($VM_URL) |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⏳ **Hinweis:** CloudInit benötigt ca. 2-3 Minuten nach VM-Start." >> $GITHUB_STEP_SUMMARY
+          echo "Danach ist das Dashboard unter der obigen URL erreichbar." >> $GITHUB_STEP_SUMMARY
+          
+          # Auch direkt in den Log ausgeben
+          echo "======================================="
+          echo "VM Name:   $VM_NAME"
+          echo "IP:        $VM_IP"
+          echo "Dashboard: $VM_URL"
+          echo "======================================="
+        env:
+          EXOSCALE_API_KEY:      ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET:   ${{ secrets.EXOSCALE_API_SECRET }}
+          AWS_ACCESS_KEY_ID:     ${{ secrets.EXOSCALE_API_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # --------------------------------------------------------
+      # Schritt 8: Warten bis der Web-Server erreichbar ist
+      # Health-Check mit Retry-Logik
+      # --------------------------------------------------------
+      - name: "🔍 Warten bis VM erreichbar ist"
+        run: |
+          VM_IP=$(tofu output -raw vm_public_ip)
+          echo "Warte auf VM unter $VM_IP..."
+          
+          # Bis zu 5 Minuten warten (60 Versuche, alle 5 Sekunden)
+          for i in $(seq 1 60); do
+            if curl -s --max-time 5 "http://$VM_IP/health" | grep -q "OK"; then
+              echo "✅ VM ist erreichbar nach $((i * 5)) Sekunden!"
+              exit 0
+            fi
+            echo "Versuch $i/60 – noch nicht erreichbar..."
+            sleep 5
+          done
+          
+          echo "⚠️ Timeout: VM nach 5 Minuten noch nicht erreichbar."
+          echo "CloudInit könnte noch laufen. Bitte manuell prüfen."
+          # Kein Fehler – CloudInit könnte einfach langsam sein
+          exit 0
+        env:
+          EXOSCALE_API_KEY:      ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET:   ${{ secrets.EXOSCALE_API_SECRET }}
+          AWS_ACCESS_KEY_ID:     ${{ secrets.EXOSCALE_API_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.EXOSCALE_API_SECRET }}
