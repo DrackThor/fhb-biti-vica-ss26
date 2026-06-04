@@ -7,6 +7,22 @@ terraform {
       version = "~> 0.62"
     }
   }
+
+  backend "s3" {
+    bucket = "mhorvath-terraform-state"
+    key    = "terraform.tfstate"
+    region = "at-vie-1"
+
+    endpoints = {
+      s3 = "https://sos-at-vie-1.exo.io"
+    }
+
+    skip_credentials_validation = true
+    skip_metadata_api_check     = true
+    skip_region_validation      = true
+    skip_requesting_account_id  = true
+    use_path_style              = true
+  }
 }
 
 # Provider konfigurieren – API Keys kommen aus Umgebungsvariablen

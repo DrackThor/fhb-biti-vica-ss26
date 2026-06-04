@@ -11,6 +11,10 @@ jobs:
     name: Terraform Destroy
     runs-on: ubuntu-latest
 
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.EXOSCALE_API_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.EXOSCALE_API_SECRET }}
+
     defaults:
       run:
         working-directory: Horvath_Michael/Abgabe_2_260604/terraform
