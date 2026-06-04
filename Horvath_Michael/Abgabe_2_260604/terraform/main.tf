@@ -7,6 +7,21 @@ terraform {
       version = "~> 0.62"
     }
   }
+
+  # Remote Backend – State wird in Exoscale Object Storage gespeichert
+  # So haben Create und Destroy Workflow denselben State
+  backend "s3" {
+    bucket = "mhorvath-terraform-state"
+    key    = "terraform.tfstate"
+    region = "at-vie-1"
+
+    # Exoscale S3-kompatibler Endpunkt
+    endpoint                    = "https://sos-at-vie-1.exo.io"
+    skip_credentials_validation = true
+    skip_metadata_api_check     = true
+    skip_region_validation      = true
+    force_path_style            = true
+  }
 }
 
 # Provider konfigurieren – API Keys kommen aus Umgebungsvariablen
@@ -62,7 +77,7 @@ resource "exoscale_compute_instance" "vm" {
   name = var.vm_name
 
   # Verknüpfung mit dem Template und dem Instance-Typ
-template_id = data.exoscale_template.ubuntu.id
+  template_id = data.exoscale_template.ubuntu.id
   type        = var.vm_type
   disk_size   = var.disk_size
 
