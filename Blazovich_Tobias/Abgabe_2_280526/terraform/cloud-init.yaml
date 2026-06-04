@@ -1,0 +1,218 @@
+#cloud-config
+
+# Führt ein Update der Paketlisten durch
+package_update: true
+
+# Installiert nginx als Webserver
+packages:
+  - nginx
+
+# Führt Befehle nach dem ersten Start der VM aus
+runcmd:
+
+  # Aktiviert nginx automatisch beim Systemstart
+  - systemctl enable nginx
+
+  # Startet den nginx Webserver
+  - systemctl start nginx
+
+  #HTMl Website erstellen
+  - |
+    cat > /var/www/html/index.html <<EOF
+    <!DOCTYPE html>
+     <html>
+       <head>
+
+         <!-- Zeichencodierung der Webseite -->
+          <meta charset="UTF-8"> 
+
+         <!-- Titel der Webseite -->
+          <title>VM Informationen</title>
+
+          <style>
+            /* Allgemeines Seitenlayout */
+            body {
+              font-family: Arial, sans-serif;
+              padding: 40px;
+              background-color: #f4f4f4;
+              }
+
+              /* Hauptüberschrift */
+              h1 {
+              text-align: center;
+              color: #38bdf8;
+              margin-bottom: 40px;
+              font-size: 34px;
+              }
+
+              /* Container für die Karten */
+             .container { 
+              display: grid; 
+              grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+              gap: 28px; 
+              }
+
+              /* Design der Informationskarten */
+             .card { 
+              background: #1e293b;
+              border-radius: 18px; 
+              padding: 28px;
+              box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+              } 
+
+              /* Überschrift innerhalb der Karten */
+              .card h2 { 
+              margin-top: 0; 
+              color: #7dd3fc; 
+              border-bottom: 1px solid #334155; 
+              padding-bottom: 10px; 
+              font-size: 26px;               
+              }
+
+              /* Listen innerhalb der Karten */
+              ul { 
+              margin-top: 18px; 
+              padding-left: 24px; 
+              } 
+
+              /* Einzelne Listenelemente */
+              li { 
+              margin-bottom: 12px; 
+              color: #e2e8f0;
+              font-size: 16px; 
+              line-height: 1.6; 
+              } 
+
+              /* Farbe der Listenpunkte */
+              li::marker {
+              color: #38bdf8;
+              }
+
+              /* Formatierung für größere Textausgaben */
+              pre { 
+              margin-top: 18px; 
+              background: #0f172a; 
+              padding: 14px; 
+              border-radius: 12px; 
+              verflow-x: auto; 
+              color: #e2e8f0; 
+              font-size: 11px; 
+              line-height: 1.5; 
+              box-sizing: border-box;
+              }
+          </style>
+         </head>
+
+         <body>
+
+            <h1>Technische Informationen der VM</h1>
+
+            <!-- Hauptcontainer mit allen Informationskarten -->
+            <div class="container">
+
+              <!-- Karte für den Hostnamen -->
+              <div class="card">
+                <h2>Hostname</h2>
+                <ul> 
+                   <li>$(hostname)</li> 
+                  </ul>
+              </div>
+
+              <!-- Karte für den IP-Adresse -->
+              <div class="card">
+                <h2>IP-Adresse</h2>
+                <ul> 
+                  <li>$(hostname -I)</li> 
+                </ul>
+              </div>
+
+              <!-- Karte für Kernel Informationen -->
+              <div class="card">
+                <h2>Kernel</h2>
+                <ul> 
+                  <li>$(uname -r)</li> 
+                  <li>$(uname -m)</li> 
+                  <li>$(uname -o)</li> 
+                </ul>          
+              </div>
+
+              <!-- Karte für Arbeitsspeicher Informationen -->
+              <div class="card">
+                <h2>Arbeitsspeicher</h2>
+                <ul>
+                <li>RAM Gesamt: $(free -h | awk '/Mem:/ {print $2}')</li>
+                <li>RAM Belegt: $(free -h | awk '/Mem:/ {print $3}')</li>
+                <li>RAM Frei: $(free -h | awk '/Mem:/ {print $4}')</li>
+                </ul>
+              </div>
+
+              <!-- Karte für Dateisystem Informationen -->
+              <div class="card">
+                <h2>Dateisysteme</h2>
+                <pre>$(df -h)</pre>
+              </div>
+
+              <!-- Karte für Storage Informationen -->
+              <div class="card">
+                <h2>Storage</h2>
+                <pre>$(lsblk --ascii)</pre>
+              </div>
+              
+              <!-- Karte für CPU Informationen -->
+              <div class="card">
+                <h2>CPU Informationen</h2>
+                <ul> 
+                  <li>$(lscpu | grep 'Architecture')</li> 
+                  <li>$(lscpu | grep '^CPU(s)')</li>
+                  <li>$(lscpu | grep 'Model name')</li> 
+                </ul>
+              </div>
+
+              <!-- Karte für Hypervisor Informationen -->
+              <div class="card">
+                <h2>Hypervisor</h2>
+                <ul> 
+                  <li>$(systemd-detect-virt)</li>
+                </ul>
+              </div>
+
+             </div>
+
+         </body>
+
+       </html>
+    EOF
+
+  # JSON API Datei erstellen 
+  - | 
+    cat > /var/www/html/api.json <<EOF 
+    { 
+      "hostname": "$(hostname)", 
+      "ip_address": "$(hostname -I | xargs)", 
+      "kernel": "$(uname -r)", 
+      "architecture": "$(uname -m)", 
+      "memory_total": "$(free -h | awk '/Mem:/ {print $2}')", 
+      "memory_used": "$(free -h | awk '/Mem:/ {print $3}')", 
+      "memory_free": "$(free -h | awk '/Mem:/ {print $4}')", 
+      "filesystem": "$(df -h / | awk 'NR==2 {print $1}')", 
+      "storage_size": "$(lsblk -dn -o SIZE | head -1)", 
+      "cpu": "$(lscpu | awk -F: '/Model name/ {print $2}' | xargs)", 
+      "hypervisor": "$(systemd-detect-virt)"
+    } 
+    EOF
+
+   # Installiert Certbot für Let's Encrypt
+  - apt-get update
+  - apt-get install -y certbot python3-certbot-nginx
+  # Stellt sicher, dass nginx aktiviert und gestartet ist 
+  - systemctl enable nginx 
+  - systemctl restart nginx
+  # Wartet, bis der DNS-Eintrag weltweit verfügbar ist
+  - sleep 300
+    # Prüft nginx Konfiguration
+  - nginx -t
+  # Erstellt automatisch ein HTTPS-Zertifikat für die Domain und konfiguriert Nginx mit HTTP→HTTPS-Weiterleitung
+  - certbot --nginx -d blazovich-tobias.biti-fhb.org --non-interactive --agree-tos -m 2410640024@hochschule-burgenland.at --redirect
+
+  # Startet nginx erneut, damit die Änderungen übernommen werden
+  - systemctl restart nginx
