@@ -24,18 +24,12 @@ jobs:
         with:
           terraform_version: "1.7.0"
 
-      # Terraform initialisieren – verbindet zum S3 Backend um State zu laden
       - name: Terraform Init
         run: terraform init
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-      # Alle Ressourcen löschen – liest State aus S3 Backend
+      # Alle Ressourcen löschen – -auto-approve überspringt die Bestätigung
       - name: Terraform Destroy
         run: terraform destroy -auto-approve
         env:
           TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
           TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
