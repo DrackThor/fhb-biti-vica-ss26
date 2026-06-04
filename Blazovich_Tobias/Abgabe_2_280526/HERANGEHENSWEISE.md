@@ -51,23 +51,25 @@ Zusätzlich wurde geplant, die Konfiguration auf mehrere Terraform-Dateien aufzu
 
 ## Repository-Struktur
 ```text
-ABGABE_2_280526/ 
-│ 
-├── .github/  
-│    └── workflows/  
-│       ├── create-infrastructure.yml 
-│       └── destroy-infrastructure.yml 
-├── terraform/ 
-│   ├── .terraform/ 
-│   ├── cloud-init.yaml 
-│   ├── main.tf 
-│   ├── dns.tf
-│   ├── outputs.tf
-│   ├── variables.tf 
-│   └── versions.tf 
-├── .gitignore 
-├── FUNKTIONSWEISE.md 
-└── HERANGEHENSWEISE.md
+fhb-biti-vica-ss26
+│
+├── .github
+│   └── workflows
+│       ├── blazovich-tobias_create-infrastructure.yml
+│       └── blazovich-tobias_destroy-infrastructure.yml
+├── Blazovich_Tobias
+    └── Abgabe_2_280526 
+        ├── terraform/ 
+        │   ├── cloud-init.yaml 
+        │   ├── main.tf 
+        │   ├── dns.tf
+        │   ├── outputs.tf
+        │   ├── variables.tf 
+        │   └── versions.tf 
+        ├── .gitignore 
+        ├── FUNKTIONSWEISE.md 
+        ├── HERANGEHENSWEISE.md
+        └── README.md
 ```
 Die Dateien im Abgabeordner ABGABE_2_280526 haben folgenden Zweck:
 
