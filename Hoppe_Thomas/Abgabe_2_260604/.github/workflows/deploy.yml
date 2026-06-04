@@ -1,0 +1,178 @@
+# =============================================================================
+# deploy.yml – GitHub Actions Workflow: Exoscale Infrastruktur erstellen
+# Erstellt VM, Security Group, Elastic IP und wartet auf CloudInit-Fertigstellung
+#
+# Benötigte GitHub Secrets:
+#   EXOSCALE_API_KEY      – Exoscale API Key
+#   EXOSCALE_API_SECRET   – Exoscale API Secret
+#   SSH_PUBLIC_KEY        – Öffentlicher SSH-Schlüssel für VM-Zugriff
+#   DOMAIN                – FQDN der VM (muss auf Elastic IP zeigen)
+#   LETSENCRYPT_EMAIL     – E-Mail für Let's Encrypt Zertifikate
+# =============================================================================
+
+name: 🚀 Deploy Infrastruktur
+
+on:
+  # Manuell ausführbar mit optionalen Eingaben
+  workflow_dispatch:
+    inputs:
+      zone:
+        description: 'Exoscale Zone (at-vie-1, de-fra-1, ...)'
+        required: false
+        default: 'at-vie-1'
+      instance_type:
+        description: 'VM Instanztyp'
+        required: false
+        default: 'standard.small'
+
+# Verhindert parallele Ausführung (Terraform State Konflikte vermeiden)
+concurrency:
+  group: terraform-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Infrastruktur erstellen
+    runs-on: ubuntu-latest
+    
+    # Ausgabewerte für spätere Jobs oder zur Anzeige
+    outputs:
+      vm_ip: ${{ steps.tf_output.outputs.vm_ip }}
+      url_html: ${{ steps.tf_output.outputs.url_html }}
+      url_api: ${{ steps.tf_output.outputs.url_api }}
+
+    steps:
+      # ------------------------------------------------------------------
+      # 1. Repository auschecken
+      # ------------------------------------------------------------------
+      - name: 📥 Repository auschecken
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # 2. OpenTofu (Terraform-kompatibel) installieren
+      # OpenTofu ist die Open-Source Alternative zu Terraform
+      # ------------------------------------------------------------------
+      - name: 🔧 OpenTofu installieren
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: '1.7.x'
+
+      # ------------------------------------------------------------------
+      # 3. Terraform State vom vorherigen Run wiederherstellen (falls vorhanden)
+      # Achtung: Für Produktion besser ein Remote Backend verwenden!
+      # ------------------------------------------------------------------
+      - name: 💾 Terraform State wiederherstellen
+        uses: actions/cache@v4
+        with:
+          path: Hoppe_Thomas/Abgabe_2_260604/terraform/terraform.tfstate
+          key: terraform-state-${{ github.ref_name }}
+          restore-keys: |
+            terraform-state-
+
+      # ------------------------------------------------------------------
+      # 4. OpenTofu initialisieren (Provider herunterladen)
+      # ------------------------------------------------------------------
+      - name: 🔄 OpenTofu initialisieren
+        working-directory: Hoppe_Thomas/Abgabe_2_260604/terraform
+        run: tofu init
+
+      # ------------------------------------------------------------------
+      # 5. Infrastruktur planen (zeigt was erstellt wird, ohne Änderungen)
+      # ------------------------------------------------------------------
+      - name: 📋 Infrastruktur planen
+        working-directory: Hoppe_Thomas/Abgabe_2_260604/terraform
+        run: |
+          tofu plan \
+            -var="exoscale_api_key=${{ secrets.EXOSCALE_API_KEY }}" \
+            -var="exoscale_api_secret=${{ secrets.EXOSCALE_API_SECRET }}" \
+            -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}" \
+            -var="domain=${{ secrets.DOMAIN }}" \
+            -var="letsencrypt_email=${{ secrets.LETSENCRYPT_EMAIL }}" \
+            -var="zone=${{ github.event.inputs.zone || 'at-vie-1' }}" \
+            -var="instance_type=${{ github.event.inputs.instance_type || 'standard.small' }}" \
+            -out=tfplan
+
+      # ------------------------------------------------------------------
+      # 6. Infrastruktur erstellen (apply)
+      # -auto-approve: keine manuelle Bestätigung nötig (CI/CD)
+      # ------------------------------------------------------------------
+      - name: 🏗️ Infrastruktur erstellen
+        working-directory: Hoppe_Thomas/Abgabe_2_260604/terraform
+        run: tofu apply -auto-approve tfplan
+
+      # ------------------------------------------------------------------
+      # 7. Outputs auslesen und als GitHub Actions Outputs speichern
+      # ------------------------------------------------------------------
+      - name: 📊 Outputs auslesen
+        id: tf_output
+        working-directory: Hoppe_Thomas/Abgabe_2_260604/terraform
+        run: |
+          VM_IP=$(tofu output -raw vm_ip)
+          URL_HTML=$(tofu output -raw url_html)
+          URL_API=$(tofu output -raw url_api)
+          
+          echo "vm_ip=$VM_IP" >> $GITHUB_OUTPUT
+          echo "url_html=$URL_HTML" >> $GITHUB_OUTPUT
+          echo "url_api=$URL_API" >> $GITHUB_OUTPUT
+          
+          echo "### 🚀 Deployment erfolgreich!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Ressource | Wert |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 🌐 Elastic IP | \`$VM_IP\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🖥️ Website | [$URL_HTML]($URL_HTML) |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔌 JSON API | [$URL_API]($URL_API) |" >> $GITHUB_STEP_SUMMARY
+
+      # ------------------------------------------------------------------
+      # 8. Terraform State als Artifact speichern (für destroy workflow)
+      # ------------------------------------------------------------------
+      - name: 💾 Terraform State speichern
+        uses: actions/upload-artifact@v4
+        if: always() # Auch bei Fehlern speichern (für Cleanup)
+        with:
+          name: terraform-state
+          path: Hoppe_Thomas/Abgabe_2_260604/terraform/terraform.tfstate
+          retention-days: 30
+
+      # ------------------------------------------------------------------
+      # 9. Auf CloudInit-Fertigstellung warten (VM konfiguriert sich selbst)
+      # CloudInit dauert ca. 2-5 Minuten (Pakete installieren, certbot, ...)
+      # ------------------------------------------------------------------
+      - name: ⏳ Auf VM-Konfiguration warten (CloudInit)
+        run: |
+          VM_IP="${{ steps.tf_output.outputs.vm_ip }}"
+          echo "Warte auf VM $VM_IP..."
+          
+          # Bis zu 10 Minuten warten (CloudInit + certbot können etwas dauern)
+          for i in $(seq 1 20); do
+            echo "Versuch $i/20..."
+            
+            # Teste ob der Health-Check Endpunkt erreichbar ist
+            if curl -sk --max-time 10 "https://${{ secrets.DOMAIN }}/api/health" | grep -q '"status"'; then
+              echo "✅ VM ist bereit!"
+              break
+            fi
+            
+            # Fallback: HTTP testen (falls certbot noch nicht fertig ist)
+            if curl -s --max-time 10 "http://$VM_IP/api/health" | grep -q '"status"'; then
+              echo "⚠️ VM über HTTP erreichbar (HTTPS noch nicht fertig)"
+              break
+            fi
+            
+            sleep 30
+          done
+
+      # ------------------------------------------------------------------
+      # 10. Finaler Test: API und Website aufrufen
+      # ------------------------------------------------------------------
+      - name: 🧪 Endpunkte testen
+        run: |
+          DOMAIN="${{ secrets.DOMAIN }}"
+          
+          echo "=== JSON API Test ==="
+          curl -sk "https://$DOMAIN/api" | python3 -m json.tool | head -30 || echo "API nicht erreichbar (HTTP versuchen...)"
+          curl -s "http://${{ steps.tf_output.outputs.vm_ip }}/api" | python3 -m json.tool | head -30 || true
+          
+          echo ""
+          echo "=== Health Check ==="
+          curl -sk "https://$DOMAIN/api/health" || true
