@@ -25,6 +25,7 @@ Diese Lösung erstellt automatisiert eine virtuelle Maschine auf Exoscale, die �
 |-------------|-------|
 | Terraform | Erstellung und Löschung der Exoscale Infrastruktur |
 | Exoscale | Cloud-Anbieter für die VM (Zone: at-vie-1, Wien) |
+| Exoscale SOS | S3-kompatibler Object Storage für den Terraform Remote State |
 | CloudInit | Automatische Konfiguration der VM beim ersten Boot |
 | GitHub Actions | Automatisierung der Create/Destroy Workflows |
 | nginx | Webserver auf der VM |
@@ -63,6 +64,8 @@ Terraform definiert und erstellt folgende Ressourcen auf Exoscale:
 - **Compute Instance** (Ubuntu 24.04 LTS, standard.medium, 10GB Disk, Zone at-vie-1)
 
 Die API Keys werden nie im Code gespeichert, sondern als GitHub Secrets übergeben und von Terraform über die Umgebungsvariablen `TF_VAR_exoscale_api_key` und `TF_VAR_exoscale_api_secret` eingelesen.
+
+Der Terraform State wird in einem **S3-kompatiblen Remote Backend** auf Exoscale Object Storage (SOS) gespeichert (Bucket: `mhorvath-terraform-state`, Zone: `at-vie-1`). Dadurch teilen sich Create- und Destroy-Workflow denselben State — ohne Remote Backend würde der Destroy-Workflow keine Ressourcen kennen und nichts löschen können.
 
 ### 2. CloudInit konfiguriert die VM automatisch
 
@@ -179,6 +182,6 @@ Die Seite aktualisiert sich automatisch alle 30 Sekunden. Die Daten werden alle 
 ## Sicherheit
 
 - API Keys werden ausschließlich als GitHub Secrets gespeichert
-- Terraform State wird nicht ins Git-Repository committed (`.gitignore`)
+- Terraform State wird nicht ins Git-Repository committed (`.gitignore`), sondern remote in Exoscale SOS gespeichert
 - SSH-Zugang ist in der Security Group offen, kann bei Bedarf eingeschränkt werden
 - Sensible Variablen sind in `variables.tf` mit `sensitive = true` markiert
