@@ -85,7 +85,7 @@ resource "exoscale_ssh_key" "this" {
 # ---------------------------------------------------------------------
 resource "exoscale_compute_instance" "vm" {
   zone        = var.zone
-  name        = "vminfo"
+  name        = "vm-Dirry"
   template_id = data.exoscale_template.ubuntu.id
   type        = var.instance_type
   disk_size   = 10
