@@ -1,6 +1,6 @@
 # Abgabe 2 – Automatisierte VM-Info-Seite auf Exoscale 
 
-# Erstellt von: Alexander Dirry
+Erstellt von: Alexander Dirry
 
 ## Ziel
 
