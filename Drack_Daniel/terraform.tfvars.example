@@ -1,6 +1,0 @@
-exoscale_zone = "ch-gva-2"
-instance_name  = "info-vm"
-instance_type  = "standard.small"
-disk_size_gb   = 20
-ssh_key_name   = "" # optional: Name des SSH Keypairs in Exoscale
-cloudinit_file = "cloudinit.yaml"
