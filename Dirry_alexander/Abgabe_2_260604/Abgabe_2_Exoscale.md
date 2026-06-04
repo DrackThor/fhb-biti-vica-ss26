@@ -1,4 +1,6 @@
-# Abgabe 2 – Automatisierte VM-Info-Seite auf Exoscale
+# Abgabe 2 – Automatisierte VM-Info-Seite auf Exoscale 
+
+# Erstellt von: Alexander Dirry
 
 ## Ziel
 
@@ -69,10 +71,4 @@ Am Ende des Laufs steht im Log die `website_url` und `api_url`.
 | `.github/workflows/abgabe2-create.yml` | Workflow zum Erstellen |
 | `.github/workflows/abgabe2-destroy.yml` | Workflow zum Löschen |
 
-## Bonus: HTTPS mit eigener Domain
 
-Mit einer Domain, die auf die VM zeigt, lässt sich automatisch ein
-Let's-Encrypt-Zertifikat beziehen (z. B. indem man statt nginx den
-Webserver **Caddy** verwendet, der HTTPS automatisch handhabt, sobald ein
-gültiger DNS-Name auf den Server zeigt). Der dafür nötige DNS-Eintrag kann
-ebenfalls per Terraform über die Exoscale-DNS-Ressourcen angelegt werden.
