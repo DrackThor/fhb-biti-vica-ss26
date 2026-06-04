@@ -6,8 +6,8 @@
 # Sie installiert nginx und richtet die Info-Seite (HTML + JSON) ein.
 #
 # Hinweis: Dies ist eine Terraform-"templatefile"-Vorlage. Der Platzhalter
-# ${generate_py} wird beim Erstellen durch den Inhalt von generate.py
-# ersetzt (siehe main.tf). Sonst ist es ganz normales CloudInit-YAML.
+# fuer das Base64-kodierte Skript wird beim Erstellen durch den Inhalt von
+# generate.py ersetzt (siehe main.tf). Sonst ist es ganz normales CloudInit-YAML.
 # =====================================================================
 
 package_update: true     # apt-Paketlisten aktualisieren
@@ -19,10 +19,12 @@ packages:                # diese Pakete installieren
 
 write_files:
   # ---- 1) Das Python-Skript, das die VM-Infos einsammelt -------------
+  # Das Python-Skript wird Base64-kodiert eingebettet (encoding: b64),
+  # damit keine YAML-Einrueckungsprobleme entstehen. cloud-init dekodiert es.
   - path: /opt/vminfo/generate.py
     permissions: '0755'
-    content: |
-      ${indent(6, generate_py)}
+    encoding: b64
+    content: ${generate_py_b64}
 
   # ---- 2) nginx-Konfiguration mit ZWEI Endpunkten --------------------
   #        /     -> index.html (Website, HTML)
