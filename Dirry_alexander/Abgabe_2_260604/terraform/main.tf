@@ -99,6 +99,6 @@ resource "exoscale_compute_instance" "vm" {
   # CloudInit: Die Vorlage wird gerendert; dabei wird der Inhalt von
   # generate.py in das YAML hineinkopiert.
   user_data = templatefile("${path.module}/cloud-init.yaml.tftpl", {
-    generate_py = file("${path.module}/generate.py")
+    generate_py_b64 = base64encode(file("${path.module}/generate.py"))
   })
 }
