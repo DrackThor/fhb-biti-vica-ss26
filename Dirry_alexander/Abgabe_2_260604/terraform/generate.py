@@ -69,7 +69,7 @@ info = {
 
 # Dateisysteme mit df einsammeln (Quelle, Typ, Groesse, belegt, frei, Mount)
 df = sh(
-    "df -hT --output=source,fstype,size,used,avail,target "
+    "df -h --output=source,fstype,size,used,avail,target "
     "-x tmpfs -x devtmpfs -x squashfs"
 )
 for line in df.splitlines()[1:]:           # erste Zeile = Ueberschrift -> ueberspringen
