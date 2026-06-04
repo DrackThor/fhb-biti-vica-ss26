@@ -1,0 +1,693 @@
+#cloud-config
+# =============================================================================
+# cloud-init.yaml – Automatische VM-Konfiguration beim ersten Boot
+# Installiert nginx, Python-Backend, certbot und konfiguriert alles vollständig.
+# Variablen werden von Terraform via templatefile() eingesetzt:
+#   ${domain}  – FQDN der VM (z.B. vm.example.com)
+#   ${email}   – E-Mail für Let's Encrypt
+#   ${eip}     – Elastic IP-Adresse
+# =============================================================================
+
+# System-Pakete auf den neuesten Stand bringen
+package_update: true
+package_upgrade: true
+
+# Benötigte Pakete installieren
+packages:
+  - nginx          # Webserver: dient als Reverse Proxy und statischer Fileserver
+  - python3        # Python-Laufzeitumgebung für das Backend
+  - python3-pip    # Python Paketmanager
+  - certbot        # Let's Encrypt Client für TLS-Zertifikate
+  - python3-certbot-nginx  # Certbot nginx-Plugin (automatische nginx-Konfiguration)
+  - curl           # HTTP-Client (für Tests und Health Checks)
+  - jq             # JSON-Processor (für Debugging)
+  - lm-sensors     # Hardware-Sensor Informationen
+  - dmidecode      # SMBIOS/DMI Informationen (Hypervisor-Typ)
+  - net-tools      # Netzwerk-Tools (ifconfig, netstat)
+
+# Verzeichnisse und Dateien erstellen
+write_files:
+
+  # ---------------------------------------------------------------------------
+  # Python FastAPI Backend – stellt /api und /api/health Endpunkte bereit
+  # Liest Systeminformationen direkt aus dem Linux-Kernel (/proc, /sys)
+  # ---------------------------------------------------------------------------
+  - path: /opt/vminfo/app.py
+    owner: root:root
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env python3
+      """
+      VM Info Backend – liefert technische Systemdetails über HTTP.
+      
+      Endpunkte:
+        GET /api        → JSON mit vollständigen VM-Informationen
+        GET /api/health → Health-Check für Exoscale EIP-Healthcheck
+      
+      Läuft auf localhost:8080, nginx leitet /api/* weiter.
+      """
+      import os
+      import re
+      import json
+      import socket
+      import platform
+      import subprocess
+      from datetime import datetime, timezone
+      from http.server import HTTPServer, BaseHTTPRequestHandler
+
+      def run_cmd(cmd):
+          """Führt einen Shell-Befehl aus und gibt stdout zurück. Bei Fehler: leerer String."""
+          try:
+              result = subprocess.run(
+                  cmd, shell=True, capture_output=True, text=True, timeout=5
+              )
+              return result.stdout.strip()
+          except Exception:
+              return ""
+
+      def read_file(path):
+          """Liest eine Datei und gibt den Inhalt zurück. Bei Fehler: leerer String."""
+          try:
+              with open(path, 'r') as f:
+                  return f.read().strip()
+          except Exception:
+              return ""
+
+      def get_cpu_info():
+          """CPU-Informationen aus /proc/cpuinfo lesen."""
+          cpuinfo = read_file("/proc/cpuinfo")
+          model = ""
+          cores = 0
+          for line in cpuinfo.splitlines():
+              if line.startswith("model name") and not model:
+                  model = line.split(":", 1)[1].strip()
+              if line.startswith("processor"):
+                  cores += 1
+          return {
+              "model": model or "Unknown",
+              "cores": cores,
+              "architecture": platform.machine()
+          }
+
+      def get_memory_info():
+          """Arbeitsspeicher-Informationen aus /proc/meminfo lesen."""
+          meminfo = read_file("/proc/meminfo")
+          mem = {}
+          for line in meminfo.splitlines():
+              parts = line.split()
+              if len(parts) >= 2:
+                  # Konvertiere kB in MB
+                  key = parts[0].rstrip(":")
+                  val_kb = int(parts[1]) if parts[1].isdigit() else 0
+                  mem[key] = round(val_kb / 1024, 1)  # MB
+          return {
+              "total_mb": mem.get("MemTotal", 0),
+              "available_mb": mem.get("MemAvailable", 0),
+              "used_mb": round(mem.get("MemTotal", 0) - mem.get("MemAvailable", 0), 1),
+              "swap_total_mb": mem.get("SwapTotal", 0),
+              "swap_used_mb": round(mem.get("SwapTotal", 0) - mem.get("SwapFree", 0), 1),
+          }
+
+      def get_disk_info():
+          """Festplatten und Dateisystem-Informationen."""
+          disks = []
+          try:
+              # df -h gibt menschenlesbare Ausgabe
+              output = run_cmd("df -T --output=source,fstype,size,used,avail,pcent,target -x tmpfs -x devtmpfs -x squashfs")
+              lines = output.splitlines()
+              if len(lines) > 1:
+                  for line in lines[1:]:  # Erste Zeile = Header überspringen
+                      parts = line.split()
+                      if len(parts) >= 7:
+                          disks.append({
+                              "device": parts[0],
+                              "fstype": parts[1],
+                              "size": parts[2],
+                              "used": parts[3],
+                              "available": parts[4],
+                              "use_percent": parts[5],
+                              "mount_point": parts[6]
+                          })
+          except Exception:
+              pass
+          return disks
+
+      def get_network_info():
+          """Netzwerk-Interfaces und IP-Adressen."""
+          interfaces = []
+          try:
+              # ip -j addr gibt strukturiertes JSON aus
+              output = run_cmd("ip -j addr")
+              ifaces = json.loads(output) if output else []
+              for iface in ifaces:
+                  name = iface.get("ifname", "")
+                  # lo (Loopback) überspringen
+                  if name == "lo":
+                      continue
+                  addrs = []
+                  for addr_info in iface.get("addr_info", []):
+                      addrs.append({
+                          "family": addr_info.get("family", ""),
+                          "address": addr_info.get("local", ""),
+                          "prefix_len": addr_info.get("prefixlen", "")
+                      })
+                  interfaces.append({
+                      "name": name,
+                      "mac": iface.get("address", ""),
+                      "state": iface.get("operstate", ""),
+                      "addresses": addrs
+                  })
+          except Exception:
+              pass
+          return interfaces
+
+      def get_hypervisor_info():
+          """Hypervisor-Typ und Virtualisierungstechnologie erkennen."""
+          # Methode 1: systemd-detect-virt
+          virt_type = run_cmd("systemd-detect-virt")
+          
+          # Methode 2: DMI-Daten (erfordert dmidecode)
+          dmi_product = run_cmd("dmidecode -s system-product-name 2>/dev/null || echo ''")
+          dmi_manufacturer = run_cmd("dmidecode -s system-manufacturer 2>/dev/null || echo ''")
+          
+          # Methode 3: /proc/cpuinfo Flags
+          cpuinfo = read_file("/proc/cpuinfo")
+          has_hypervisor_flag = "hypervisor" in cpuinfo.lower()
+          
+          return {
+              "type": virt_type or "unknown",
+              "product": dmi_product or "unknown",
+              "manufacturer": dmi_manufacturer or "unknown",
+              "hypervisor_flag_present": has_hypervisor_flag
+          }
+
+      def get_kernel_info():
+          """Linux Kernel-Informationen."""
+          return {
+              "version": platform.release(),
+              "full_version": run_cmd("uname -a"),
+              "os": platform.system(),
+              "os_release": read_file("/etc/os-release").replace("\n", ", "),
+              "distribution": run_cmd("lsb_release -d 2>/dev/null | cut -f2"),
+          }
+
+      def get_uptime_info():
+          """System-Uptime aus /proc/uptime."""
+          uptime_raw = read_file("/proc/uptime")
+          uptime_seconds = float(uptime_raw.split()[0]) if uptime_raw else 0
+          uptime_hours = round(uptime_seconds / 3600, 2)
+          return {
+              "seconds": int(uptime_seconds),
+              "hours": uptime_hours,
+              "human": run_cmd("uptime -p")
+          }
+
+      def get_all_info():
+          """Sammelt alle VM-Informationen in einem Dictionary."""
+          return {
+              "timestamp": datetime.now(timezone.utc).isoformat(),
+              "hostname": socket.gethostname(),
+              "kernel": get_kernel_info(),
+              "hypervisor": get_hypervisor_info(),
+              "cpu": get_cpu_info(),
+              "memory": get_memory_info(),
+              "disks": get_disk_info(),
+              "network": get_network_info(),
+              "uptime": get_uptime_info(),
+              "load_average": {
+                  "1min": os.getloadavg()[0],
+                  "5min": os.getloadavg()[1],
+                  "15min": os.getloadavg()[2]
+              }
+          }
+
+      class VMInfoHandler(BaseHTTPRequestHandler):
+          """HTTP Request Handler für die VM-Info API."""
+          
+          def log_message(self, format, *args):
+              """Standard-Logging unterdrücken (nginx übernimmt das)."""
+              pass
+
+          def send_json(self, status_code, data):
+              """Hilfsmethode: JSON-Antwort senden."""
+              body = json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8")
+              self.send_response(status_code)
+              self.send_header("Content-Type", "application/json; charset=utf-8")
+              self.send_header("Content-Length", str(len(body)))
+              self.send_header("Access-Control-Allow-Origin", "*")
+              self.end_headers()
+              self.wfile.write(body)
+
+          def do_GET(self):
+              """GET-Anfragen verarbeiten."""
+              if self.path == "/api" or self.path == "/api/":
+                  # Vollständige VM-Informationen als JSON
+                  self.send_json(200, get_all_info())
+              elif self.path == "/api/health":
+                  # Simpler Health-Check für Exoscale EIP-Healthcheck
+                  self.send_json(200, {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()})
+              else:
+                  self.send_json(404, {"error": "Not found"})
+
+      if __name__ == "__main__":
+          # Lauscht auf localhost:8080 – nginx leitet weiter
+          server = HTTPServer(("127.0.0.1", 8080), VMInfoHandler)
+          print("VM Info API läuft auf http://127.0.0.1:8080")
+          server.serve_forever()
+
+  # ---------------------------------------------------------------------------
+  # systemd Service – startet das Python-Backend automatisch
+  # ---------------------------------------------------------------------------
+  - path: /etc/systemd/system/vminfo.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=VM Info API Backend
+      After=network.target
+      # Neustart nach nginx (nginx braucht das Backend)
+      
+      [Service]
+      Type=simple
+      User=root
+      ExecStart=/usr/bin/python3 /opt/vminfo/app.py
+      Restart=always
+      RestartSec=5
+      # Ausgabe ins systemd Journal
+      StandardOutput=journal
+      StandardError=journal
+      
+      [Install]
+      WantedBy=multi-user.target
+
+  # ---------------------------------------------------------------------------
+  # nginx Konfiguration – Reverse Proxy und HTTP→HTTPS Redirect
+  # Initiale Konfiguration für HTTP (wird von certbot zu HTTPS erweitert)
+  # ---------------------------------------------------------------------------
+  - path: /etc/nginx/sites-available/vminfo
+    owner: root:root
+    permissions: '0644'
+    content: |
+      # nginx Konfiguration für VM-Info Webseite
+      # ${domain} wird von Terraform templatefile() eingesetzt
+      
+      server {
+          listen 80;
+          listen [::]:80;
+          server_name ${domain};
+          
+          # Let's Encrypt ACME Challenge – für Zertifikat-Ausstellung
+          location /.well-known/acme-challenge/ {
+              root /var/www/certbot;
+          }
+          
+          # Alle anderen Anfragen zu HTTPS weiterleiten
+          location / {
+              return 301 https://$$host$$request_uri;
+          }
+      }
+      
+      server {
+          # HTTPS wird von certbot hinzugefügt – Platzhalter damit nginx startet
+          listen 443 ssl;
+          listen [::]:443 ssl;
+          server_name ${domain};
+          
+          # TLS-Zertifikate (werden von certbot erstellt)
+          ssl_certificate /etc/letsencrypt/live/${domain}/fullchain.pem;
+          ssl_certificate_key /etc/letsencrypt/live/${domain}/privkey.pem;
+          
+          # Empfohlene TLS-Einstellungen (Mozilla SSL Config Generator - Intermediate)
+          ssl_protocols TLSv1.2 TLSv1.3;
+          ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+          ssl_prefer_server_ciphers off;
+          ssl_session_cache shared:SSL:10m;
+          
+          # Security Headers
+          add_header Strict-Transport-Security "max-age=63072000" always;
+          add_header X-Content-Type-Options nosniff;
+          add_header X-Frame-Options DENY;
+          
+          # JSON API Endpunkt – weiterleiten an Python Backend
+          location /api {
+              proxy_pass http://127.0.0.1:8080;
+              proxy_set_header Host $$host;
+              proxy_set_header X-Real-IP $$remote_addr;
+              proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $$scheme;
+              proxy_read_timeout 10s;
+          }
+          
+          # HTML Webseite – statische Datei aus /var/www/vminfo
+          location / {
+              root /var/www/vminfo;
+              index index.html;
+              try_files $$uri $$uri/ =404;
+          }
+      }
+
+  # ---------------------------------------------------------------------------
+  # HTML Webseite – zeigt VM-Informationen visuell aufbereitet
+  # Lädt Daten dynamisch vom /api Endpunkt via JavaScript (fetch API)
+  # ---------------------------------------------------------------------------
+  - path: /var/www/vminfo/index.html
+    owner: www-data:www-data
+    permissions: '0644'
+    content: |
+      <!DOCTYPE html>
+      <html lang="de">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>VM Info – ${domain}</title>
+        <style>
+          /* ---- Reset & Basis ---- */
+          *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+          
+          body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 2rem 1rem;
+          }
+          
+          /* ---- Layout ---- */
+          .container { max-width: 1100px; margin: 0 auto; }
+          
+          header {
+            text-align: center;
+            margin-bottom: 2.5rem;
+          }
+          header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #38bdf8;
+            letter-spacing: -0.5px;
+          }
+          header p {
+            color: #94a3b8;
+            margin-top: 0.4rem;
+            font-size: 0.95rem;
+          }
+          
+          /* ---- Karten-Grid ---- */
+          .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 1.25rem;
+          }
+          
+          .card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 1.25rem 1.5rem;
+            transition: border-color 0.2s;
+          }
+          .card:hover { border-color: #38bdf8; }
+          
+          .card-title {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #38bdf8;
+            margin-bottom: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+          }
+          
+          /* ---- Tabelle innerhalb der Karte ---- */
+          table { width: 100%; border-collapse: collapse; }
+          td {
+            padding: 0.35rem 0;
+            font-size: 0.9rem;
+            border-bottom: 1px solid #1e3a5f22;
+            vertical-align: top;
+          }
+          td:first-child {
+            color: #94a3b8;
+            width: 45%;
+            padding-right: 0.75rem;
+          }
+          td:last-child { color: #f1f5f9; word-break: break-all; }
+          
+          /* ---- Badge ---- */
+          .badge {
+            display: inline-block;
+            background: #0f4c81;
+            color: #7dd3fc;
+            border-radius: 4px;
+            padding: 0.1em 0.45em;
+            font-size: 0.78rem;
+            font-family: monospace;
+          }
+          
+          /* ---- Disk List ---- */
+          .disk-item {
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #334155;
+          }
+          .disk-item:last-child { border-bottom: none; }
+          .disk-bar-bg {
+            background: #334155;
+            border-radius: 4px;
+            height: 6px;
+            margin-top: 6px;
+            overflow: hidden;
+          }
+          .disk-bar-fill {
+            background: linear-gradient(90deg, #38bdf8, #818cf8);
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.8s ease;
+          }
+          
+          /* ---- Status ---- */
+          .status-dot {
+            display: inline-block;
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #22c55e;
+            margin-right: 0.35rem;
+            animation: pulse 2s infinite;
+          }
+          @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+          }
+          
+          /* ---- Timestamp ---- */
+          .timestamp {
+            text-align: center;
+            color: #475569;
+            font-size: 0.8rem;
+            margin-top: 2rem;
+          }
+          
+          /* ---- Loading / Error ---- */
+          .loading {
+            text-align: center;
+            color: #64748b;
+            padding: 3rem;
+            font-size: 1.1rem;
+          }
+          .error {
+            background: #450a0a;
+            border: 1px solid #ef4444;
+            border-radius: 8px;
+            padding: 1rem 1.5rem;
+            color: #fca5a5;
+            margin: 1rem 0;
+          }
+          
+          /* ---- Links ---- */
+          .api-link {
+            display: inline-block;
+            margin-top: 0.5rem;
+            color: #38bdf8;
+            text-decoration: none;
+            font-size: 0.85rem;
+          }
+          .api-link:hover { text-decoration: underline; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <header>
+            <h1>⚙️ VM System Information</h1>
+            <p>
+              <span class="status-dot"></span>
+              ${domain}
+              &nbsp;·&nbsp;
+              <a href="/api" class="api-link">JSON API →</a>
+            </p>
+          </header>
+          
+          <div id="content" class="loading">Lade Systemdaten…</div>
+          
+          <p class="timestamp" id="ts"></p>
+        </div>
+        
+        <script>
+          // Lädt VM-Informationen vom API-Endpunkt und rendert sie als Karten
+          async function loadInfo() {
+            const content = document.getElementById('content');
+            try {
+              const res = await fetch('/api');
+              if (!res.ok) throw new Error('HTTP ' + res.status);
+              const d = await res.json();
+              
+              document.getElementById('ts').textContent =
+                'Zuletzt aktualisiert: ' + new Date(d.timestamp).toLocaleString('de-AT');
+              
+              // Hilfsfunktionen für Tabellenzeilen
+              const row = (label, value) =>
+                '<tr><td>' + label + '</td><td>' + (value ?? '–') + '</td></tr>';
+              const badge = v => '<span class="badge">' + v + '</span>';
+              
+              // Speicher-Fortschrittsbalken
+              const memUsed = d.memory.used_mb;
+              const memTotal = d.memory.total_mb;
+              const memPct = memTotal ? Math.round(memUsed / memTotal * 100) : 0;
+              
+              // Netzwerk-Adressen formatieren
+              const netRows = (d.network || []).map(iface => {
+                const addrs = (iface.addresses || [])
+                  .map(a => badge(a.address + '/' + a.prefix_len)).join(' ');
+                return row(iface.name + ' ' + badge(iface.state), addrs || '–');
+              }).join('');
+              
+              // Festplatten-Liste
+              const diskItems = (d.disks || []).map(disk => {
+                const pct = parseInt(disk.use_percent) || 0;
+                const color = pct > 85 ? '#ef4444' : pct > 65 ? '#f59e0b' : '#38bdf8';
+                return '<div class="disk-item">' +
+                  '<div style="display:flex;justify-content:space-between">' +
+                  '<span style="color:#f1f5f9">' + badge(disk.mount_point) + ' ' + disk.device + '</span>' +
+                  '<span style="color:#94a3b8;font-size:.8rem">' + disk.used + ' / ' + disk.size + ' (' + disk.use_percent + ')</span>' +
+                  '</div>' +
+                  '<div class="disk-bar-bg"><div class="disk-bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div>' +
+                  '<div style="color:#64748b;font-size:.78rem;margin-top:4px">Typ: ' + disk.fstype + ' · Frei: ' + disk.available + '</div>' +
+                  '</div>';
+              }).join('');
+              
+              // Karten rendern
+              content.className = 'grid';
+              content.innerHTML = [
+                // Allgemein
+                '<div class="card"><div class="card-title">🖥️ System</div><table>' +
+                  row('Hostname', badge(d.hostname)) +
+                  row('Distribution', d.kernel.distribution) +
+                  row('OS', d.kernel.os) +
+                  row('Uptime', d.uptime.human) +
+                  row('Load (1/5/15 min)', [d.load_average['1min'], d.load_average['5min'], d.load_average['15min']].map(x => x.toFixed(2)).join(' / ')) +
+                '</table></div>',
+                
+                // Kernel
+                '<div class="card"><div class="card-title">🐧 Kernel</div><table>' +
+                  row('Version', badge(d.kernel.version)) +
+                  row('Architektur', d.cpu.architecture) +
+                  row('uname -a', '<small style="font-family:monospace;word-break:break-all">' + d.kernel.full_version + '</small>') +
+                '</table></div>',
+                
+                // Hypervisor
+                '<div class="card"><div class="card-title">☁️ Hypervisor / Virtualisierung</div><table>' +
+                  row('Typ', badge(d.hypervisor.type)) +
+                  row('Produkt', d.hypervisor.product) +
+                  row('Hersteller', d.hypervisor.manufacturer) +
+                  row('Hypervisor-Flag', d.hypervisor.hypervisor_flag_present ? '✅ vorhanden' : '❌ nicht vorhanden') +
+                '</table></div>',
+                
+                // CPU
+                '<div class="card"><div class="card-title">⚡ CPU</div><table>' +
+                  row('Modell', d.cpu.model) +
+                  row('Kerne (vCPU)', d.cpu.cores) +
+                  row('Architektur', d.cpu.architecture) +
+                '</table></div>',
+                
+                // RAM
+                '<div class="card"><div class="card-title">💾 Arbeitsspeicher</div>' +
+                  '<table>' +
+                  row('Gesamt', d.memory.total_mb + ' MB') +
+                  row('Verwendet', d.memory.used_mb + ' MB (' + memPct + '%)') +
+                  row('Verfügbar', d.memory.available_mb + ' MB') +
+                  row('Swap gesamt', d.memory.swap_total_mb + ' MB') +
+                  row('Swap verwendet', d.memory.swap_used_mb + ' MB') +
+                  '</table>' +
+                  '<div class="disk-bar-bg" style="margin-top:.75rem"><div class="disk-bar-fill" style="width:' + memPct + '%"></div></div>' +
+                '</div>',
+                
+                // Netzwerk
+                '<div class="card"><div class="card-title">🌐 Netzwerk</div><table>' + netRows + '</table></div>',
+                
+                // Festplatten
+                '<div class="card" style="grid-column:1/-1"><div class="card-title">💿 Dateisysteme & Festplatten</div>' +
+                  diskItems +
+                '</div>',
+              ].join('');
+              
+            } catch(e) {
+              content.innerHTML = '<div class="error">Fehler beim Laden der Daten: ' + e.message + '</div>';
+            }
+          }
+          
+          // Beim Laden und alle 30 Sekunden aktualisieren
+          loadInfo();
+          setInterval(loadInfo, 30000);
+        </script>
+      </body>
+      </html>
+
+# ---------------------------------------------------------------------------
+# Boot-Commands: Werden einmalig nach der Paketinstallation ausgeführt
+# Reihenfolge: 1. Services konfigurieren, 2. nginx, 3. Zertifikat, 4. Neustart
+# ---------------------------------------------------------------------------
+runcmd:
+  # Verzeichnisse erstellen
+  - mkdir -p /var/www/certbot
+  - mkdir -p /var/www/vminfo
+  - mkdir -p /opt/vminfo
+
+  # Berechtigungen setzen
+  - chown -R www-data:www-data /var/www/vminfo
+  - chmod +x /opt/vminfo/app.py
+
+  # Standard nginx Site deaktivieren, vminfo Site aktivieren
+  - rm -f /etc/nginx/sites-enabled/default
+  - ln -sf /etc/nginx/sites-available/vminfo /etc/nginx/sites-enabled/vminfo
+
+  # vminfo systemd Service aktivieren und starten
+  - systemctl daemon-reload
+  - systemctl enable vminfo
+  - systemctl start vminfo
+
+  # nginx Konfiguration testen und starten
+  - nginx -t && systemctl enable nginx && systemctl restart nginx
+
+  # Warten bis nginx läuft
+  - sleep 5
+
+  # Let's Encrypt Zertifikat ausstellen
+  # --non-interactive: keine Benutzer-Eingaben
+  # --agree-tos: Nutzungsbedingungen akzeptieren
+  # --nginx: nginx-Plugin (konfiguriert nginx automatisch)
+  # --redirect: HTTP→HTTPS Redirect einrichten
+  - certbot --non-interactive --agree-tos --nginx -d ${domain} -m ${email} --redirect || echo "Certbot fehlgeschlagen - HTTP bleibt aktiv"
+
+  # nginx nach Certbot-Änderungen neu starten
+  - systemctl restart nginx
+
+  # Automatische Zertifikat-Erneuerung via cron (läuft täglich, erneuert bei <30 Tagen Restlaufzeit)
+  - echo "0 3 * * * root certbot renew --quiet && systemctl reload nginx" > /etc/cron.d/certbot-renew
+
+# Cloud-Init abgeschlossen – VM ist bereit
+final_message: |
+  ====================================================
+  VM-Konfiguration abgeschlossen!
+  Hostname: $HOSTNAME
+  Domain:   ${domain}
+  Dienste:  nginx, vminfo API
+  ====================================================
