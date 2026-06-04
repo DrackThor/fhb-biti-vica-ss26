@@ -13,7 +13,7 @@ jobs:
     # Arbeitsverzeichnis für alle Steps auf den terraform Ordner setzen
     defaults:
       run:
-        working-directory: Abgabe_2_260604/terraform
+        working-directory: Horvath_Michael/Abgabe_2_260604/terraform
 
     steps:
       # 1. Repository auschecken – der Runner hat sonst keinen Code

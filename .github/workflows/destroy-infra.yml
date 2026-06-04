@@ -13,7 +13,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: Abgabe_2_260604/terraform
+        working-directory: Horvath_Michael/Abgabe_2_260604/terraform
 
     steps:
       - name: Checkout Repository
