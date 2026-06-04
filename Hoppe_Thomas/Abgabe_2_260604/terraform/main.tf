@@ -1,5 +1,5 @@
 # =============================================================================
-# main.tf – Exoscale VM Infrastruktur für BITI VICA SS26 Abgabe 2
+# main.tf â Exoscale VM Infrastruktur fÃ¼r BITI VICA SS26 Abgabe 2
 # Erstellt eine Ubuntu VM mit Elastic IP, Security Group und SSH Key
 # =============================================================================
 
@@ -12,7 +12,7 @@ terraform {
   }
 
   # Terraform State wird in GitHub Actions als Artifact gespeichert.
-  # Für produktive Umgebungen: Remote Backend (S3/Exoscale Object Storage) verwenden.
+  # FÃ¼r produktive Umgebungen: Remote Backend (S3/Exoscale Object Storage) verwenden.
   required_version = ">= 1.3.0"
 }
 
@@ -24,8 +24,8 @@ provider "exoscale" {
 }
 
 # -----------------------------------------------------------------------------
-# SSH Key Pair – wird für den Zugriff auf die VM benötigt
-# Der öffentliche Schlüssel wird via Variable übergeben (GitHub Secret)
+# SSH Key Pair â wird fÃ¼r den Zugriff auf die VM benÃ¶tigt
+# Der Ã¶ffentliche SchlÃ¼ssel wird via Variable Ã¼bergeben (GitHub Secret)
 # -----------------------------------------------------------------------------
 resource "exoscale_ssh_key" "vm_key" {
   name       = "${var.project_name}-key"
@@ -33,14 +33,14 @@ resource "exoscale_ssh_key" "vm_key" {
 }
 
 # -----------------------------------------------------------------------------
-# Security Group – definiert erlaubte eingehende Verbindungen
+# Security Group â definiert erlaubte eingehende Verbindungen
 # -----------------------------------------------------------------------------
 resource "exoscale_security_group" "vm_sg" {
   name        = "${var.project_name}-sg"
   description = "Security Group fuer BITI VICA Abgabe 2 VM"
 }
 
-# SSH-Zugriff (Port 22) – für Wartung und Debugging
+# SSH-Zugriff (Port 22) â fÃ¼r Wartung und Debugging
 resource "exoscale_security_group_rule" "ssh" {
   security_group_id = exoscale_security_group.vm_sg.id
   type              = "INGRESS"
@@ -50,7 +50,7 @@ resource "exoscale_security_group_rule" "ssh" {
   end_port          = 22
 }
 
-# HTTP (Port 80) – für Let's Encrypt Zertifikat-Validierung und HTTP→HTTPS Redirect
+# HTTP (Port 80) â fÃ¼r Let's Encrypt Zertifikat-Validierung und HTTPâHTTPS Redirect
 resource "exoscale_security_group_rule" "http" {
   security_group_id = exoscale_security_group.vm_sg.id
   type              = "INGRESS"
@@ -60,7 +60,7 @@ resource "exoscale_security_group_rule" "http" {
   end_port          = 80
 }
 
-# HTTPS (Port 443) – Hauptendpunkt der Anwendung
+# HTTPS (Port 443) â Hauptendpunkt der Anwendung
 resource "exoscale_security_group_rule" "https" {
   security_group_id = exoscale_security_group.vm_sg.id
   type              = "INGRESS"
@@ -70,7 +70,7 @@ resource "exoscale_security_group_rule" "https" {
   end_port          = 443
 }
 
-# ICMP (Ping) – für Netzwerk-Debugging
+# ICMP (Ping) â fÃ¼r Netzwerk-Debugging
 resource "exoscale_security_group_rule" "icmp" {
   security_group_id = exoscale_security_group.vm_sg.id
   type              = "INGRESS"
@@ -81,14 +81,14 @@ resource "exoscale_security_group_rule" "icmp" {
 }
 
 # -----------------------------------------------------------------------------
-# Elastic IP – statische öffentliche IP-Adresse
+# Elastic IP â statische Ã¶ffentliche IP-Adresse
 # Bleibt konstant, auch wenn die VM neugestartet wird
 # -----------------------------------------------------------------------------
 resource "exoscale_elastic_ip" "vm_eip" {
   zone        = var.zone
   description = "Elastic IP fuer ${var.project_name}"
 
-  # Healthcheck: Exoscale prüft ob die VM erreichbar ist
+  # Healthcheck: Exoscale prÃ¼ft ob die VM erreichbar ist
   healthcheck {
     mode            = "https"
     port            = 443
@@ -102,21 +102,21 @@ resource "exoscale_elastic_ip" "vm_eip" {
 }
 
 # -----------------------------------------------------------------------------
-# Compute Instance (VM) – Ubuntu mit CloudInit Konfiguration
+# Compute Instance (VM) â Ubuntu mit CloudInit Konfiguration
 # -----------------------------------------------------------------------------
 resource "exoscale_compute_instance" "vm" {
   zone = var.zone
   name = var.project_name
 
-  # Ubuntu 24.04 LTS – Long Term Support, 5 Jahre Sicherheitsupdates
-  template_id = data.exoscale_compute_template.ubuntu.id
+  # Ubuntu 24.04 LTS â Long Term Support, 5 Jahre Sicherheitsupdates
+  template_id = data.exoscale_template.ubuntu.id
 
-  # Instanzgröße: small = 2 vCPU, 2GB RAM – ausreichend für dieses Projekt
+  # InstanzgrÃ¶Ãe: small = 2 vCPU, 2GB RAM â ausreichend fÃ¼r dieses Projekt
   type = var.instance_type
 
   disk_size = var.disk_size
 
-  # SSH Key für Zugriff
+  # SSH Key fÃ¼r Zugriff
   ssh_key = exoscale_ssh_key.vm_key.name
 
   # Security Group
@@ -144,8 +144,8 @@ resource "exoscale_compute_instance" "vm" {
 # -----------------------------------------------------------------------------
 # Data Source: Aktuelles Ubuntu 24.04 LTS Template von Exoscale
 # -----------------------------------------------------------------------------
-data "exoscale_compute_template" "ubuntu" {
+data "exoscale_template" "ubuntu" {
   zone   = var.zone
-  name   = "Linux Ubuntu 24.04 (Noble Numbat) 64-bit"
-  filter = "featured" # Nur offizielle Exoscale Templates
+  name   = "Linux Ubuntu 24.04 LTS 64-bit"
+  visibility = "public" # Nur offizielle Exoscale Templates
 }
