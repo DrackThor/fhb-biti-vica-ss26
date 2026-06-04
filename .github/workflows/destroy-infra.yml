@@ -1,6 +1,6 @@
 # Workflow zum Löschen der Exoscale Infrastruktur
 # ACHTUNG: Dieser Workflow löscht alle erstellten Ressourcen unwiderruflich!
-name: Destroy Infrastructure
+name: Horvath Michael – Destroy Infrastructure
 
 on:
   # Nur manuell auslösbar – kein automatischer Trigger, zu gefährlich!

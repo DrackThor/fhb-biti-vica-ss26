@@ -1,5 +1,5 @@
 # Workflow zum Erstellen der Exoscale Infrastruktur
-name: Create Infrastructure
+name: Horvath Michael – Create Infrastructure
 
 on:
   # Manuell auslösbar über GitHub UI (Actions Tab → "Run workflow")
