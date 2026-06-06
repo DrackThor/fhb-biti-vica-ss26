@@ -11,7 +11,7 @@ variable "zone" {
 variable "instance_name" {
   description = "Name der Compute-Instanz."
   type        = string
-  default     = "abgabe2-vminfo"
+  default     = "mhabel-vminfo"
 }
 
 variable "instance_type" {

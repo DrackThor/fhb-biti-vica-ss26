@@ -7,7 +7,7 @@ on:
 # Gemeinsame Variablen fuer alle Jobs/Steps.
 env:
   ZONE: at-vie-1
-  TF_WORKDIR: Abgabe_2_260606/terraform
+  TF_WORKDIR: Habel_Michael/Abgabe_2_260606/terraform
   # Bucket fuer den Remote-State: aus Repo-Variable, sonst Default.
   TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET || 'fhb-biti-vica-ss26-abgabe2-tfstate' }}
 
