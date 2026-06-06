@@ -1,0 +1,8 @@
+# Lokale OpenTofu/Terraform-Artefakte (gehoeren nicht ins Repo)
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
+!*.tfvars.example
