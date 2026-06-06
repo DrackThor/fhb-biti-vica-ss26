@@ -3,8 +3,8 @@
 # CloudInit – die GESAMTE OS-Konfiguration der VM (Vorgabe der Aufgabe).
 #
 # Diese Datei ist ein Terraform/OpenTofu-Template (.tftpl):
-#   ${...}            -> wird beim Apply von OpenTofu ersetzt.
-#   ${indent(6, ...)} -> rueckt den Python-Code korrekt um 6 Leerzeichen ein,
+#   $${...}            -> wird beim Apply von OpenTofu ersetzt.
+#   $${indent(6, ...)} -> rueckt den Python-Code korrekt um 6 Leerzeichen ein,
 #                        damit das YAML-Blockformat (content: |) gueltig bleibt.
 # Quelle des Dienstes: files/server.py (einzige Quelle der Wahrheit).
 # =====================================================================
