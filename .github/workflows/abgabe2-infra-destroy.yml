@@ -6,7 +6,7 @@ on:
 
 env:
   ZONE: at-vie-1
-  TF_WORKDIR: Abgabe_2_260606/terraform
+  TF_WORKDIR: Habel_Michael/Abgabe_2_260606/terraform
   TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET || 'fhb-biti-vica-ss26-abgabe2-tfstate' }}
 
 jobs:
