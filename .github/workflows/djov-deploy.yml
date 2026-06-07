@@ -27,7 +27,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.7.0"
+          terraform_version: "1.15.5"
           terraform_wrapper: false
 
       - name: Vorab-Check (Dateien auflisten)
@@ -39,7 +39,7 @@ jobs:
 
       - name: Terraform Init
         run: |
-          terraform init -no-color > init_output.txt 2>&1 || { cat init_output.txt; exit 1; }
+          terraform init -backend=false
 
       - name: Terraform Plan
         run: terraform plan -input=false
