@@ -71,7 +71,12 @@ Sobald die VM von der Cloud-Infrastruktur bereitgestellt wurde, greift die **Clo
 
 ## 6. CI/CD & GitOps-Workflow (Automatisierung)
 
-Im operativen Betrieb wird die Infrastruktur nach dem **GitOps-Prinzip** verwaltet. Das Git-Repository gilt als "Single Source of Truth" (einzige Quelle der Wahrheit).
+Im operativen Betrieb wird die Infrastruktur nach dem GitOps-Prinzip verwaltet. 
+
+### Github Workflow
+Die Kommunikation mit der Exoscale-API wird in dieser spezifischen CI-Umgebung blockiert, während die Konfiguration in der lokalen Entwicklungsumgebung (Linux) vollständig validiert wurde.
+* **Lokale Validierung:** `terraform init` und `terraform plan` wurden erfolgreich durchgeführt. Der Plan liefert das erwartete Ergebnis.
+* **Dokumentation:** Im Ordner `/proof` befinden sich Screenshots, die die erfolgreiche lokale Ausführung belegen.
 
 * **Continuous Deployment (Automatischer Build):** Sobald Änderungen am Code in den `main`-Branch gepusht werden, startet GitHub Actions vollautomatisch die Deployment-Pipeline (`deploy.yml`). Der Pipeline-Runner validiert die Syntax, zieht den aktuellen Zustand aus dem S3-Backend, gleicht ihn mit Exoscale ab und rollt Modifikationen ohne manuelles Zutun aus.
-* **Controlled Destruction (Sicherer Abbau):** Um ein versehentliches Löschen der Live-Infrastruktur zu verhindern, ist die Zerstörungs-Pipeline (`destroy.yml`) explizit gegen automatische Trigger gesperrt. Ein Rückbau aller Cloud-Ressourcen kann ausschließlich von autorisierten Personen manuell über das GitHub-Webinterface via `workflow_dispatch` gestartet werden.
+* **Controlled Destruction (Sicherer Abbau):** Um ein versehentliches Löschen der Live-Infrastruktur zu verhindern, ist die Zerstörungs-Pipeline (`destroy.yml`) explizit gegen automatische Trigger gesperrt. 
