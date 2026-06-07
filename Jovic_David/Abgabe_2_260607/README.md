@@ -1,4 +1,4 @@
-# Infrastruktur- und Workflow-Dokumentation: GitOps-Driven Compute Instance auf Exoscale
+# GitOps-Driven Compute Instance auf Exoscale
 
 Diese Dokumentation beschreibt die Architektur, Funktionsweise und den automatisierten Bereitstellungsprozess (CI/CD) einer Cloud-Infrastruktur auf Exoscale mittels Terraform. Der Fokus liegt auf einem durchgehenden GitOps-Workflow sowie einer automatisierten Post-Deployment-Konfiguration (Cloud-Init) zur Systemanalyse.
 
@@ -10,7 +10,7 @@ Die Bereitstellung folgt dem Prinzip des **Least Privilege** (minimale Rechtever
 
 ---
 
-## 2. Architektur & Sinnhaftigkeit der Dateistruktur
+## 2. Architektur &  Dateistruktur
 
 Die Trennung der Konfiguration in funktionale Einzeldateien ermöglicht Modularität, Wartbarkeit und die strikte Einhaltung von Sicherheitsrichtlinien.
 
@@ -36,7 +36,7 @@ fhb-biti-vica-ss26/
 
 ---
 
-## 3. Sicherheitsarchitektur & Geheimnishaltung
+## 3. Sicherheitsarchitektur
 
 Zum Schutz vor unbeabsichtigter Veröffentlichung sensibler API-Schlüssel (Credentials) wird eine strikte **Separation of Concerns** (Trennung der Zuständigkeiten) angewandt:
 
