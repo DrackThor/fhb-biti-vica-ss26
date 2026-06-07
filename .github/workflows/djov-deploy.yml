@@ -38,7 +38,8 @@ jobs:
           ls -la
 
       - name: Terraform Init
-        run: terraform init
+        run: |
+          terraform init -no-color > init_output.txt 2>&1 || { cat init_output.txt; exit 1; }
 
       - name: Terraform Plan
         run: terraform plan -input=false
