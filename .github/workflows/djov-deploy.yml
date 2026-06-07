@@ -42,7 +42,15 @@ jobs:
           terraform init -backend=false
 
       - name: Terraform Plan
-        run: terraform plan -input=false
+        run: |
+          # Injiziere die Secrets direkt als Umgebungsvariablen in die aktuelle Shell
+          export TF_VAR_exoscale_key="${{ secrets.EXOSCALE_KEY }}"
+          export TF_VAR_exoscale_secret="${{ secrets.EXOSCALE_SECRET }}"
+          export AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}"
+          export AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}"
+          
+          # Führe Terraform Plan aus
+          terraform plan -input=false -no-color
 
       - name: Terraform Apply
         run: terraform apply -auto-approve -input=false
