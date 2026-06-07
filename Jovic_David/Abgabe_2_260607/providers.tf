@@ -6,16 +6,19 @@ terraform {
       version = "~> 0.59.0"
     }
   }
-#  backend "s3" {
-#    bucket                      = "djov-tfstate"
-#    key                         = "production/terraform.tfstate"
-#    region                      = "at-vie-1"
-#    endpoint                    = "https://sos-at-vie-1.exo.io"
-#    skip_credentials_validation = true
-#    skip_region_validation      = true
-#    skip_metadata_api_check     = true
-#  }
-#}
+  backend "s3" {
+    bucket                      = "djov-tfstate"
+    key                         = "production/terraform.tfstate"
+    region                      = "at-vie-1"
+    endpoints = {
+      s3 = "https://sos-at-vie-1.exo.io"
+    }
+    skip_credentials_validation = true
+    skip_region_validation      = true
+    skip_metadata_api_check     = true
+    skip_requesting_account_id  = true
+  }
+}
 
 
 provider "exoscale" {
