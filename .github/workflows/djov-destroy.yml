@@ -19,9 +19,6 @@ jobs:
 
     steps:
       - name: Checkout Code
-
-    steps:
-      - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Setup Terraform
