@@ -1,0 +1,31 @@
+# Beispiel-Datei fuer Terraform-Variablen
+# Kopieren Sie diese Datei zu terraform.tfvars und fuellen Sie die Werte aus
+
+# ============================================================
+# Exoscale (Pflicht)
+# ============================================================
+exoscale_api_key    = "EXOxxxxxxxxxxxxxxxx"
+exoscale_api_secret = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+ssh_public_key      = "ssh-ed25519 AAAA... user@host"
+exoscale_zone       = "de-fra-1"
+instance_type       = "standard.micro"
+disk_size           = 10
+project_name        = "vm-info"
+
+# ============================================================
+# Cloudflare DNS + SSL (Optional - fuer Bonuspunkte)
+# ============================================================
+# Domain-Name (z.B. "vm-info.example.com")
+# Leer lassen = kein DNS, kein SSL
+domain_name = ""
+
+# Cloudflare API Token (mit DNS-Edit Berechtigung)
+# Erstellen unter: https://dash.cloudflare.com/profile/api-tokens
+cloudflare_api_token = ""
+
+# Cloudflare Zone ID der Domain
+# Finden unter: https://dash.cloudflare.com -> Domain -> Overview
+cloudflare_zone_id = ""
+
+# E-Mail fuer Let's Encrypt Benachrichtigungen
+letsencrypt_email = ""
