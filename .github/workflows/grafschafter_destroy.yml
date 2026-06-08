@@ -1,0 +1,54 @@
+name: Grafschafter - Destroy Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Zum Bestätigen "destroy" eingeben'
+        required: true
+        default: ''
+
+concurrency:
+  group: terraform-deploy
+  cancel-in-progress: false
+
+jobs:
+  destroy:
+    name: Terraform Destroy
+    runs-on: ubuntu-latest
+
+    if: github.event.inputs.confirm == 'destroy'
+
+    defaults:
+      run:
+        working-directory: Grafschafter_Fabian/Abgabe_2_260606/terraform/
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.7.x"
+
+      - name: Terraform Init
+        run: tofu init
+        env:
+          EXOSCALE_API_KEY:    ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      - name: Terraform Destroy
+        run: |
+          tofu destroy -auto-approve \
+            -var="exoscale_api_key=${{ secrets.EXOSCALE_API_KEY }}" \
+            -var="exoscale_api_secret=${{ secrets.EXOSCALE_API_SECRET }}" \
+            -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}"
+        env:
+          EXOSCALE_API_KEY:    ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      - name: Summary
+        run: |
+          echo "### 🗑️ Infrastruktur gelöscht" >> $GITHUB_STEP_SUMMARY
+          echo "Alle Exoscale-Ressourcen wurden erfolgreich entfernt." >> $GITHUB_STEP_SUMMARY

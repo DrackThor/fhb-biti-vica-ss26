@@ -1,0 +1,33 @@
+name: Abgabe 2 Infrastruktur loeschen
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TF_WORKDIR: Wallisch_Benedek/Abgabe_2_260607/terraform
+  EXOSCALE_API_KEY: ${{ secrets.EXOSCALE_API_KEY }}
+  EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+  TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+  TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Terraform installieren
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init
+        working-directory: ${{ env.TF_WORKDIR }}
+        run: terraform init
+
+      - name: Terraform destroy
+        working-directory: ${{ env.TF_WORKDIR }}
+        run: terraform destroy -auto-approve

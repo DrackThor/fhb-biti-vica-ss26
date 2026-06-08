@@ -1,0 +1,7 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+deploy_key
+deploy_key.pub
+*.pem

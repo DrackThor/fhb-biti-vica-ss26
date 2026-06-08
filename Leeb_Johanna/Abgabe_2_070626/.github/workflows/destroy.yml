@@ -1,0 +1,43 @@
+name: "2. Exoscale Infrastruktur Loeschen"
+
+on:
+  workflow_dispatch: # workflow über manuellen Knopfdruck
+
+permissions:
+  contents: write
+
+jobs:
+  terraform-destroy:
+    name: "Terraform Destroy"
+    runs-on: ubuntu-latest
+
+    steps:
+    # Repository klonen (laedt die gesicherte terraform.tfstate mit)
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    #Terraform Setup
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_wrapper: false
+    #terraform initialisieren
+    - name: Terraform Init
+      run: terraform init -reconfigure 
+      working-directory: ./terraform
+
+    # Löschen aller Ressourcen bei Exoscale 
+    - name: Terraform Destroy
+      run: terraform destroy -auto-approve
+      working-directory: ./terraform
+      env:
+        TF_VAR_exoscale_key: ${{ secrets.EXOSCALE_KEY }}
+        TF_VAR_exoscale_secret: ${{ secrets.EXOSCALE_SECRET }}
+        
+# veraltete terraform.tfstate löschen
+    - name: Remove State File from Repo
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git rm -f ./terraform/terraform.tfstate || echo "Keine State Datei zum Löschen"
+        git commit -m "State-Update: Infrastruktur gelöscht [skip ci]" || echo "Keine Änderungen"
+        git push

@@ -1,0 +1,44 @@
+# Workflow zum automatischen Löschen der Exoscale Infrastruktur
+
+name: Destroy Infrastructure
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Repository auschecken
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # OpenTofu installieren
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+
+      # OpenTofu initialisieren
+      - name: Init
+        working-directory: Brica_Ebin/Abgabe_2_070626/terraform
+        run: tofu init
+
+      # Infrastruktur anhand des gespeicherten States löschen
+      - name: Destroy
+        working-directory: Brica_Ebin/Abgabe_2_070626/terraform
+        env:
+          TF_VAR_exoscale_key: ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+        run: tofu destroy -auto-approve
+
+      # Geänderten State nach dem Löschen speichern
+      - name: Commit Terraform State After Destroy
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add Brica_Ebin/Abgabe_2_070626/terraform/terraform.tfstate
+          git commit -m "update terraform state after destroy" || echo "No state changes to commit"
+          git push

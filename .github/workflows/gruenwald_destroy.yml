@@ -1,0 +1,7 @@
+name: "Destroy Infrastructure"
+on: workflow_dispatch
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Button enabled!"

@@ -1,0 +1,32 @@
+# =============================================================================
+# terraform.tfvars.example – Beispielwerte für lokale Entwicklung
+# =============================================================================
+# WICHTIG: Diese Datei NICHT mit echten Credentials befüllen und committen!
+# Kopieren Sie diese Datei zu "terraform.tfvars" für lokale Tests.
+# "terraform.tfvars" ist in .gitignore eingetragen.
+#
+# In der GitHub Actions Pipeline werden alle Werte über Umgebungsvariablen
+# (TF_VAR_*) aus GitHub Secrets injiziert – keine .tfvars-Datei nötig.
+# =============================================================================
+
+# Exoscale API-Zugangsdaten
+# Zu finden unter: https://portal.exoscale.com/u/<user>/iam/api-keys
+exoscale_api_key    = "EXO..."   # Ihr Exoscale API Key
+exoscale_api_secret = "..."      # Ihr Exoscale API Secret
+
+# SSH Public Key für VM-Zugang
+# Generieren mit: ssh-keygen -t ed25519 -C "vminfo-deploy"
+# Public Key auslesen: cat ~/.ssh/id_ed25519.pub
+ssh_public_key = "ssh-ed25519 AAAA... your-email@example.com"
+
+# Infrastruktur-Konfiguration
+zone          = "at-vie-1"       # Exoscale Zone (Wien)
+instance_name = "vm-info-server" # Name der VM
+instance_type = "standard.small" # 2 vCPU, 2 GB RAM
+disk_size     = 20               # GB
+
+# HTTPS-Konfiguration (optional)
+# Wenn domain_name leer: nur HTTP-Zugang
+# Wenn gesetzt: Let's Encrypt Zertifikat wird automatisch geholt
+domain_name = ""                    # z.B. "vm-info.example.com"
+admin_email = "admin@example.com"   # E-Mail für Let's Encrypt

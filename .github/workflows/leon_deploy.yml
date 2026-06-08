@@ -1,0 +1,53 @@
+name: "Deploy Leon Infrastructure"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      # Exoscale Zugangsdaten aus GitHub Secrets.
+      TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+      TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # Pfad zur Abgabe.
+      TF_WORKING_DIR: ./Mandl_Leon/Abgabe_2_260602
+      TF_STATE_PATH: ./Mandl_Leon/Abgabe_2_260602/terraform.tfstate
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: opentofu/setup-opentofu@v1
+
+      # OpenTofu initialisieren und Konfiguration prüfen.
+      - name: Validate
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          tofu init
+          tofu validate
+
+      # Plan anzeigen.
+      - name: Plan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: tofu plan
+
+      # Infrastruktur erstellen.
+      - name: Apply
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: tofu apply -auto-approve
+
+      # State speichern, damit Destroy ihn später verwenden kann.
+      - name: Upload Terraform State
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: leon-tofu-state
+          path: ${{ env.TF_STATE_PATH }}
+          retention-days: 5
+
+      # URL ausgeben.
+      - name: Output
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: tofu output

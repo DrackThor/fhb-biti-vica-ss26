@@ -1,0 +1,68 @@
+name: "Reinberg Destroy Infrastructure"
+
+# Erlaubt dem Skript, Änderungen am Repository vorzunehmen (wichtig für den späteren Git Push)
+permissions:
+  contents: write
+
+# Definiert, wann der Workflow ausgeführt wird
+on: workflow_dispatch
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+
+# Sagt GitHub Actions, dass alle folgenden 'run' Befehle in diesem Ordner starten sollen
+    defaults:
+      run:
+        working-directory: ./Reinberg-Leibel_Albert/Abgabe_2_260606
+
+# Globale Umgebungsvariablen für diesen Job
+    env:
+      # Lädt die Exoscale API-Zugangsdaten sicher aus den GitHub Secrets
+      EXOSCALE_API_KEY: ${{ secrets.EXOSCALE_API_KEY }}
+      EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+      
+      # Fix für die Node.js 20 deprecation Warnung - Erzwingt neuere Node-Version für veraltete Actions
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  
+
+    # Die einzelnen Schritte, die nacheinander ausgeführt werden
+    steps:
+      # Schritt 1: Den Code aus dem GitHub-Repository auf den Runner (den Ubuntu-Server) herunterladen
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # Schritt 2: Terraform installieren und einrichten
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # Schritt 3: Terraform initialisieren
+      - name: Terraform Init
+        run: terraform init
+        env:
+          EXOSCALE_API_KEY: ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # Schritt 4: Terraform Plan für den Abbau
+      - name: Terraform Plan Destroy
+        run: terraform plan -destroy
+        env:
+          EXOSCALE_API_KEY: ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # Schritt 5: Die Infrastruktur tatsächlich zerstören (-auto-approve überspringt die manuelle "yes"-Bestätigung)
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve
+        env:
+          EXOSCALE_API_KEY: ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # Schritt 6: Den neuen Terraform State (der jetzt leer sein sollte) zurück ins Repository pushen
+      - name: Commit Terraform state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git status
+          git add terraform.tfstate || true
+
+          git commit -m "Update Terraform state" || echo "No state changes to commit"
+          git push

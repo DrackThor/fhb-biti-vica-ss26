@@ -1,0 +1,85 @@
+
+## Virtualisierung allgemein
+
+Bei der Virtualisierung handelt es sich um die Abstraktion von IT-Ressourcen durch eine Software-Schicht. Das grundlegende Prinzip besteht darin, die physische Hardware eines Rechners von den darauf laufenden Softwarekomponenten zu entkoppeln. Diese Abstraktionsschicht wird durch einen sogenannten Hypervisor (Virtual Machine Monitor, VMM) realisiert. Die VM ist eine Software, die den Betrieb mehrerer Gastsysteme auf einem Wirtssystem ermöglicht und die physischen Ressourcen (CPU, RAM, Speicher, Netzwerk) an die einzelnen virtuellen Maschinen verteilt. Nach der Installation kommunizieren die Gastsysteme ausschließlich mit den virtualisierten Ressourcen und nicht mehr direkt mit der physischen Hardware des Wirtssystems.
+
+## Formen der Vir­tua­li­sie­rung
+
+Im Bereich der modernen IT existieren verschiedene Virtualisierungsformen, die sich auf die Abstraktion von IT-Ressourcen beziehen. Im Allgemeinen unterscheidet man zwischen:
+
+- Hardware-Vir­tua­li­sie­rung
+- Software-Vir­tua­li­sie­rung
+- Spei­cher-Vir­tua­li­sie­rung
+- Da­ten­-Vir­tua­li­sie­rung
+- Netz­werk-Vir­tua­li­sie­rung
+
+## Hardware-Virtualisierung
+
+Zwei Ansätze der Hardware-Virtualisierung sind die Vollvirtualisierung und die Paravirtualisierung. Die Vollvirtualisierung emuliert die gesamte Hardware und ermöglicht es unveränderten Betriebssystemen, auf virtuellen Maschinen zu laufen. Die Paravirtualisierung hingegen erfordert Modifikationen am Gastbetriebssystem, um die Kommunikation mit dem Hypervisor zu optimieren.
+
+### Vollvirtualisierung
+
+Die Vollvirtualisierung ist eine Virtualisierungstechnik, bei der der Hypervisor die zugrundeliegende Hardware vollständig simuliert. Die VM ist dabei vollständig vom Wirtssystem isoliert, sodass ein unverändertes Gastbetriebssystem ausgeführt werden kann.
+
+Bei der Vollvirtualisierung erstellt der Hypervisor für jede VM eine vollständige, virtuelle Kopie der Hardware (eine simulierte CPU, Arbeitsspeicher, Speicher und Netzwerkkarte). Dadurch „glaubt" die VM, auf einer echten physischer Hardware zu laufen, obwohl sie  real nur mit dieser simulierten Umgebung interagiert.
+
+Das bedeutet, dass die VM keinen direkten Zugriff auf die physische Hardware oder andere VMs hat. Was in einer VM passiert bleibt innerhalb dieser VM und beeinflusst weder das Wirtssystem noch andere VMs. Diese Isolation ist ein wesentlicher Sicherheitsvorteil, da ein Fehler oder Absturz einer VM die anderen VMs nicht beeinflußt werden.
+
+Da der Hypervisor eine vollständige virtuelle Hardware-Umgebung bereitstellt, ist das Gastbetriebssystem nicht in der Lage, die Virtualisierung zu erkennen. Es behandelt die simulierten Ressourcen wie echte physische Hardware und kann daher ohne jegliche Modifikationen betrieben werden. 
+
+**Vorteile:**
+
+- Unveränderte Gastbetriebssysteme
+- Risikominimierung durch vollständige Trennung der VMs
+- Einfache Migration und Portabilität, da dieselbe Gastbetriebssystem-Instanz sowohl auf virtualisierter als auch auf phyisischer Hardware lauffähig ist
+- Schnelle Backups durch System-Imaging in wenigen Minuten
+
+**Nachteile:**
+
+- Leistungseinschränkungen durch vollständige Hardware-Emulation (wurde durch hardwareunterstützte Virtualisierung (Intel VT-x, AMD-V) weitgehend behoben)
+- Höherer Verwaltungsaufwand des Hypervisors
+- Hohe Ressourcennachfrage einer VM kann die Leistung anderer VMs beeinträchtigen
+
+## Paravirtualisierung
+
+Ist eine Virtualisierungstechnik, bei der das Gast-Betriebssystem so modifiziert wird, dass es direkt mit dem Hypervisor kommunizieren kann, ohne dass eine vollständige Emulation der Hardware erforderlich ist. Die Kommunikation erfolgt über sogenannte Hypercalls. Das reduziert den Übersetzungsaufwand und führt dadurch zu einer Leistungsverbesserung. Besonders bei Aufgaben, die häufig eine Interaktion zwischen Hardware oder Systemressourcen erfordert.
+
+**Vorteile:**
+
+- Geringerer Verwaltungsaufwand durch direkten Kommunikationsweg zwischen Gast-OS und Hypervisor
+- Direkter Ressourcenzugriff über hardwareähnliche Schnittstellen
+- Nutzung bestehender Treiber im Gastbetriebssystem
+
+**Nachteile:**
+
+- Gastbetriebssystem muss modifiziert werden (bei proprietären Systemen wie Windows nicht ohne Weiteres möglich)
+- Abhängigkeit zwischen Betriebssystem und Hypervisor (Updates können zu Kompatibilitätsproblemen führen)
+- Geringere Isolation zwischen VMs erhöht Sicherheitsrisiken
+- Leistungsvorteil gegenüber Vollvirtualisierung weitgehend entfallen, deshalb kaum noch eingesetzt
+
+
+## Vergleich: Vollvirtualisierung vs. Paravirtualisierung
+
+|                    | Vollvirtualisierung                                             | Paravirtualisierung                                                            |
+| ------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Gastbetriebssystem | Unverändert                                                     | Muss modifiziert werden                                                        |
+| Methode            | Hypervisor übersetzt alle Befehle des Gast-OS                   | Gast-OS sendet Befehle direkt über Hypercalls an den Hypervisor                |
+| Kompatibilität     | Hoch                                                            | Eingeschränkt<br>(proprietäre Systeme wie Windows nur mit speziellen Treibern) |
+| Verbreitung heute  | Weit verbreitet                                                 | Weitgehend verdrängt                                                           |
+| Beispiele          | VMware, VirtualBox, KVM                                         | Xen                                                                            |
+
+
+
+## Fazit
+
+Sowohl Vollvirtualisierung als auch Paravirtualisierung sind relevante Methoden der Hardware-Virtualisierung. Die Vollvirtualisierung bietet bessere Sicherheit, höhere Kompatibilität und ist heute dank hardwareunterstützter Prozessoren (Intel VT-x, AMD-V) die dominierende Methode. Die Paravirtualisierung hatte in frühen Virtualisierungsumgebungen einen Leistungsvorteil, wurde jedoch durch die Weiterentwicklung der Vollvirtualisierung weitgehend verdrängt. Die Wahl zwischen beiden Methoden hängt von den spezifischen Anforderungen der IT-Umgebung ab.
+
+
+
+Quellen: 
+[Wikipedia](https://de.wikipedia.org/wiki/Virtualisierung_(Informatik))
+[computerweekly.com](https://www.computerweekly.com/de/feature/Paravirtualisierung-Einsatz-Vor-und-Nachteile)
+[HPE.com](https://www.hpe.com/at/de/what-is/virtualization.html)
+[intel](https://www.intel.de/content/www/de/de/business/enterprise-computers/resources/virtualization-security.html)
+[Red Hat](https://www.redhat.com/de/topics/virtualization/what-is-virtualization)
+[IONOS](https://www.ionos.at/digitalguide/server/konfiguration/virtualisierung/)

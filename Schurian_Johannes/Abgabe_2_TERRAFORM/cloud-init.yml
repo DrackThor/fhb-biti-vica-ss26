@@ -1,0 +1,77 @@
+#cloud-config
+
+# 1. System updaten
+package_update: true
+
+# 2. Pakete installieren
+packages:
+  - nginx
+  - certbot
+  - python3-certbot-nginx
+  - curl
+  - gnupg
+  - ca-certificates
+
+# 3. Unser Bash-Skript zur Generierung des Dashboards erstellen
+write_files:
+  - path: /usr/local/bin/init-dashboard.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      
+      # Systemdaten sammeln
+      PUBLIC_IP=$(curl -s --max-time 5 http://ifconfig.me || echo "Nicht ermittelbar")
+      MEMORY=$(free -h | awk '/^Mem:/ {print "Gesamt: " $2 " / Genutzt: " $3}')
+      KERNEL=$(uname -srm)
+      HYPERVISOR=$(systemd-detect-virt || echo "Unbekannt")
+      ROOT_STORAGE=$(df -h / | awk 'NR==2 {print "Größe: " $2 " / Frei: " $4 " (" $5 " genutzt)"}')
+      FS_TABLE=$(df -hT -x tmpfs -x devtmpfs | tail -n +2 | awk '{print "<tr><td>"$1"</td><td>"$2"</td><td>"$3"</td><td>"$5"</td><td>"$7"</td></tr>"}')
+
+      # HTML-Datei generieren
+      cat <<EOF > /var/www/html/index.html
+      <!DOCTYPE html>
+      <html lang="de">
+      <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>VM Dashboard</title>
+          <style>
+              body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 40px auto; max-width: 900px; background-color: #f4f7f6; color: #333; }
+              h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+              p.subtitle { color: #7f8c8d; font-style: italic; margin-bottom: 30px; }
+              table { width: 100%; border-collapse: collapse; margin-bottom: 30px; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+              th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #e0e0e0; }
+              th { background-color: #3498db; color: white; text-transform: uppercase; font-size: 0.9em; }
+              tr:hover { background-color: #f5f5f5; }
+          </style>
+      </head>
+      <body>
+          <h1>Server Dashboard</h1>
+          <h2 class="subtitle">Hello World! Johannes is greeting you!</h2>
+          
+          <h2>System Eckdaten</h2>
+          <table>
+              <tr><th>Eigenschaft</th><th>Wert</th></tr>
+              <tr><td>Öffentliche IP</td><td><strong>$PUBLIC_IP</strong></td></tr>
+              <tr><td>Kernel & Architektur</td><td>$KERNEL</td></tr>
+              <tr><td>Hypervisor</td><td>$HYPERVISOR</td></tr>
+              <tr><td>Arbeitsspeicher (RAM)</td><td>$MEMORY</td></tr>
+              <tr><td>System-Speicher (Root)</td><td>$ROOT_STORAGE</td></tr>
+          </table>
+          
+          <h2>Detaillierte Filesysteme</h2>
+          <table>
+              <tr><th>Dateisystem</th><th>Typ</th><th>Gesamt</th><th>Verfügbar</th><th>Mountpoint</th></tr>
+              $FS_TABLE
+          </table>
+      </body>
+      </html>
+      EOF
+
+# 4. Befehle nach der Installation ausführen
+runcmd:
+  # Das Skript ausführen, um die index.html zu befüllen
+  - /usr/local/bin/init-dashboard.sh
+  # Nginx aktivieren und starten
+  - systemctl enable nginx
+  - systemctl start nginx

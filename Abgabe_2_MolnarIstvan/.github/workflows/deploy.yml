@@ -1,0 +1,95 @@
+# =============================================================================
+# deploy.yml – GitHub Actions Workflow: Infrastruktur erstellen
+# =============================================================================
+# Erstellt die Exoscale-VM mittels OpenTofu (Open-Source Terraform-Fork).
+#
+# Benötigte GitHub Secrets:
+#   - EXOSCALE_API_KEY    → Exoscale API Key
+#   - EXOSCALE_API_SECRET → Exoscale API Secret
+# =============================================================================
+
+name: Deploy Infrastruktur
+
+on:
+  workflow_dispatch:
+    inputs:
+      zone:
+        description: "Exoscale Zone"
+        required: false
+        default: "at-vie-1"
+        type: choice
+        options:
+          - at-vie-1
+          - at-vie-2
+          - de-fra-1
+
+concurrency:
+  group: terraform
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Infrastruktur erstellen
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: OpenTofu installieren
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.8.0"
+
+      - name: OpenTofu initialisieren
+        working-directory: Abgabe_2_MolnarIstvan/terraform
+        run: tofu init
+
+      - name: Plan erstellen
+        working-directory: Abgabe_2_MolnarIstvan/terraform
+        env:
+          TF_VAR_exoscale_api_key:    ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+          TF_VAR_zone:                ${{ github.event.inputs.zone || 'at-vie-1' }}
+        run: tofu plan -input=false
+
+      - name: Infrastruktur erstellen
+        working-directory: Abgabe_2_MolnarIstvan/terraform
+        env:
+          TF_VAR_exoscale_api_key:    ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+          TF_VAR_zone:                ${{ github.event.inputs.zone || 'at-vie-1' }}
+        run: tofu apply -auto-approve -input=false
+
+      - name: Ergebnis anzeigen
+        working-directory: Abgabe_2_MolnarIstvan/terraform
+        env:
+          TF_VAR_exoscale_api_key:    ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+          TF_VAR_zone:                ${{ github.event.inputs.zone || 'at-vie-1' }}
+        run: |
+          VM_IP=$(tofu output -raw vm_public_ip)
+          echo "## Deployment erfolgreich!" >> $GITHUB_STEP_SUMMARY
+          echo "| | |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| VM IP | \`$VM_IP\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| HTML Dashboard | http://$VM_IP/ |" >> $GITHUB_STEP_SUMMARY
+          echo "| JSON API | http://$VM_IP/api |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Warten auf Service
+        working-directory: Abgabe_2_MolnarIstvan/terraform
+        env:
+          TF_VAR_exoscale_api_key:    ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+          TF_VAR_zone:                ${{ github.event.inputs.zone || 'at-vie-1' }}
+        run: |
+          VM_IP=$(tofu output -raw vm_public_ip)
+          echo "Warte auf http://$VM_IP/health ..."
+          for i in $(seq 1 30); do
+            if curl --silent --fail --max-time 5 "http://$VM_IP/health"; then
+              echo "Service ist erreichbar!"
+              break
+            fi
+            echo "Versuch $i/30 – warte 10 Sekunden..."
+            sleep 10
+          done

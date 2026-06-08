@@ -1,0 +1,404 @@
+#cloud-config
+
+package_update: true
+package_upgrade: true
+packages:
+  - nginx
+  - python3
+  - curl
+  - lshw
+
+write_files:
+  - path: /usr/local/bin/collect-vm-info.py
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env python3
+      import json, subprocess, os, socket, datetime, platform
+
+      def run(cmd):
+          try:
+              r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+              return r.stdout.strip() or None
+          except Exception:
+              return None
+
+      def get_filesystems():
+          raw = run("df -h --output=source,fstype,size,used,avail,pcent,target | tail -n +2")
+          result = []
+          for line in (raw or "").splitlines():
+              parts = line.split()
+              if len(parts) >= 7 and not parts[0].startswith(("tmpfs", "udev", "none")):
+                  result.append({
+                      "device":      parts[0],
+                      "type":        parts[1],
+                      "size":        parts[2],
+                      "used":        parts[3],
+                      "available":   parts[4],
+                      "use_percent": parts[5],
+                      "mountpoint":  parts[6],
+                  })
+          return result
+
+      def get_interfaces():
+          raw = run("ip -o addr show | awk '{print $2, $3, $4}'")
+          result = []
+          for line in (raw or "").splitlines():
+              parts = line.split()
+              if len(parts) >= 3:
+                  result.append({"interface": parts[0], "family": parts[1], "address": parts[2]})
+          return result
+
+      def get_block_devices():
+          raw = run("lsblk -J -o NAME,SIZE,TYPE,MOUNTPOINT 2>/dev/null")
+          try:
+              return json.loads(raw).get("blockdevices", [])
+          except Exception:
+              return []
+
+      info = {
+          "collected_at": datetime.datetime.utcnow().isoformat() + "Z",
+          "hostname":     socket.gethostname(),
+          "fqdn":         socket.getfqdn(),
+          "os": {
+              "distribution": run("lsb_release -d | cut -f2"),
+              "release":      platform.release(),
+              "version":      platform.version(),
+              "machine":      platform.machine(),
+          },
+          "kernel": {
+              "version": run("uname -r"),
+              "type":    run("uname -s"),
+          },
+          "cpu": {
+              "model":          run("lscpu | grep 'Model name' | cut -d: -f2 | xargs"),
+              "architecture":   run("lscpu | grep '^Architecture' | cut -d: -f2 | xargs"),
+              "cores":          run("nproc"),
+              "hypervisor":     run("lscpu | grep 'Hypervisor vendor' | cut -d: -f2 | xargs"),
+              "virtualization": run("lscpu | grep 'Virtualization type' | cut -d: -f2 | xargs"),
+          },
+          "memory": {
+              "total":     run("free -h | awk '/^Mem:/{print $2}'"),
+              "used":      run("free -h | awk '/^Mem:/{print $3}'"),
+              "free":      run("free -h | awk '/^Mem:/{print $4}'"),
+              "available": run("free -h | awk '/^Mem:/{print $7}'"),
+          },
+          "storage": {
+              "block_devices": get_block_devices(),
+              "filesystems":   get_filesystems(),
+          },
+          "network": {
+              "interfaces":    get_interfaces(),
+              "public_ip":     run("curl -sf --max-time 5 https://ifconfig.me"),
+              "default_route": run("ip route show default"),
+          },
+          "system": {
+              "uptime":       run("uptime -p"),
+              "uptime_since": run("uptime -s"),
+              "load_avg":     run("cat /proc/loadavg"),
+              "processes":    run("ps aux | wc -l"),
+          },
+          "cloud": {
+              "provider":    "Exoscale",
+              "instance_id": run("curl -sf --max-time 3 http://169.254.169.254/latest/meta-data/instance-id"),
+              "zone":        run("curl -sf --max-time 3 http://169.254.169.254/latest/meta-data/placement/availability-zone"),
+          },
+      }
+
+      os.makedirs("/var/www/html", exist_ok=True)
+
+      json_data = json.dumps(info, indent=2)
+
+      with open("/var/www/html/api.json", "w") as f:
+          f.write(json_data)
+
+      with open("/var/www/html/api", "w") as f:
+          f.write(json_data)
+
+      def v(val):
+          return str(val) if val else "n/a"
+
+      fs_rows = "".join(
+          f"<tr><td>{fs['device']}</td><td>{fs['type']}</td>"
+          f"<td>{fs['size']}</td><td>{fs['used']}</td>"
+          f"<td>{fs['available']}</td><td>{fs['use_percent']}</td>"
+          f"<td>{fs['mountpoint']}</td></tr>"
+          for fs in info["storage"]["filesystems"]
+      )
+
+      iface_rows = "".join(
+          f"<tr><td>{i['interface']}</td><td>{i['family']}</td><td>{i['address']}</td></tr>"
+          for i in info["network"]["interfaces"]
+      )
+
+      html = f"""<!DOCTYPE html>
+      <html lang="de">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="refresh" content="30">
+        <title>{v(info['hostname'])} / vm-info</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600&display=swap" rel="stylesheet">
+        <style>
+          :root {{
+            --bg:      #0f1117;
+            --surface: #181c27;
+            --border:  #252b3b;
+            --text:    #d4d8e8;
+            --muted:   #5a6380;
+            --accent:  #4f8ef7;
+            --green:   #3ecf8e;
+            --purple:  #9d7bf7;
+            --red:     #f76f6f;
+          }}
+          * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+          body {{
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'IBM Plex Sans', sans-serif;
+            font-size: 13px;
+            line-height: 1.6;
+          }}
+          header {{
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 18px 28px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+          }}
+          .host {{
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--accent);
+          }}
+          .meta {{
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            color: var(--muted);
+          }}
+          .api-btn {{
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            color: var(--green);
+            border: 1px solid var(--green);
+            padding: 4px 12px;
+            border-radius: 4px;
+            text-decoration: none;
+            transition: background 0.15s;
+          }}
+          .api-btn:hover {{ background: rgba(62,207,142,0.08); }}
+          main {{
+            max-width: 1100px;
+            margin: 28px auto;
+            padding: 0 28px;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 16px;
+          }}
+          .card {{
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+          }}
+          .card-title {{
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--border);
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--muted);
+          }}
+          .card-body {{ padding: 12px 16px; }}
+          .row {{
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            padding: 5px 0;
+            border-bottom: 1px solid rgba(37,43,59,0.6);
+            gap: 12px;
+          }}
+          .row:last-child {{ border-bottom: none; }}
+          .label {{ color: var(--muted); font-size: 12px; white-space: nowrap; flex-shrink: 0; }}
+          .value {{
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            text-align: right;
+            word-break: break-all;
+          }}
+          .accent  {{ color: var(--accent); }}
+          .green   {{ color: var(--green); }}
+          .purple  {{ color: var(--purple); }}
+          .full {{ grid-column: 1 / -1; }}
+          table {{ width: 100%; border-collapse: collapse; font-family: 'IBM Plex Mono', monospace; font-size: 11px; }}
+          th {{ text-align: left; padding: 8px 12px; color: var(--muted); font-weight: 600; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid var(--border); }}
+          td {{ padding: 7px 12px; border-bottom: 1px solid rgba(37,43,59,0.4); }}
+          tr:last-child td {{ border-bottom: none; }}
+          footer {{
+            text-align: center;
+            padding: 24px;
+            color: var(--muted);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            border-top: 1px solid var(--border);
+            margin-top: 12px;
+          }}
+          footer a {{ color: var(--accent); text-decoration: none; }}
+        </style>
+      </head>
+      <body>
+        <header>
+          <div>
+            <div class="host">{v(info['hostname'])}</div>
+            <div class="meta">{v(info['os']['distribution'])} &nbsp;|&nbsp; collected {info['collected_at']}</div>
+          </div>
+          <a class="api-btn" href="/api">JSON API</a>
+        </header>
+
+        <main>
+          <div class="card">
+            <div class="card-title">Operating System</div>
+            <div class="card-body">
+              <div class="row"><span class="label">Distribution</span><span class="value accent">{v(info['os']['distribution'])}</span></div>
+              <div class="row"><span class="label">Kernel</span><span class="value">{v(info['kernel']['version'])}</span></div>
+              <div class="row"><span class="label">Kernel type</span><span class="value">{v(info['kernel']['type'])}</span></div>
+              <div class="row"><span class="label">Architecture</span><span class="value">{v(info['os']['machine'])}</span></div>
+              <div class="row"><span class="label">Hostname</span><span class="value green">{v(info['hostname'])}</span></div>
+              <div class="row"><span class="label">FQDN</span><span class="value">{v(info['fqdn'])}</span></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">CPU &amp; Virtualization</div>
+            <div class="card-body">
+              <div class="row"><span class="label">Model</span><span class="value">{v(info['cpu']['model'])}</span></div>
+              <div class="row"><span class="label">Architecture</span><span class="value">{v(info['cpu']['architecture'])}</span></div>
+              <div class="row"><span class="label">Cores</span><span class="value accent">{v(info['cpu']['cores'])}</span></div>
+              <div class="row"><span class="label">Hypervisor</span><span class="value purple">{v(info['cpu']['hypervisor'])}</span></div>
+              <div class="row"><span class="label">Virt. type</span><span class="value">{v(info['cpu']['virtualization'])}</span></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">Memory</div>
+            <div class="card-body">
+              <div class="row"><span class="label">Total</span><span class="value accent">{v(info['memory']['total'])}</span></div>
+              <div class="row"><span class="label">Used</span><span class="value">{v(info['memory']['used'])}</span></div>
+              <div class="row"><span class="label">Free</span><span class="value green">{v(info['memory']['free'])}</span></div>
+              <div class="row"><span class="label">Available</span><span class="value green">{v(info['memory']['available'])}</span></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">Network</div>
+            <div class="card-body">
+              <div class="row"><span class="label">Public IP</span><span class="value accent">{v(info['network']['public_ip'])}</span></div>
+              <div class="row"><span class="label">Default route</span><span class="value">{v(info['network']['default_route'])}</span></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">System</div>
+            <div class="card-body">
+              <div class="row"><span class="label">Uptime</span><span class="value green">{v(info['system']['uptime'])}</span></div>
+              <div class="row"><span class="label">Running since</span><span class="value">{v(info['system']['uptime_since'])}</span></div>
+              <div class="row"><span class="label">Load avg</span><span class="value">{v(info['system']['load_avg'])}</span></div>
+              <div class="row"><span class="label">Processes</span><span class="value">{v(info['system']['processes'])}</span></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">Cloud</div>
+            <div class="card-body">
+              <div class="row"><span class="label">Provider</span><span class="value purple">{v(info['cloud']['provider'])}</span></div>
+              <div class="row"><span class="label">Instance ID</span><span class="value">{v(info['cloud']['instance_id'])}</span></div>
+              <div class="row"><span class="label">Zone</span><span class="value">{v(info['cloud']['zone'])}</span></div>
+            </div>
+          </div>
+
+          <div class="card full">
+            <div class="card-title">Filesystems</div>
+            <table>
+              <tr><th>Device</th><th>Type</th><th>Size</th><th>Used</th><th>Available</th><th>Use%</th><th>Mountpoint</th></tr>
+              {fs_rows}
+            </table>
+          </div>
+
+          <div class="card full">
+            <div class="card-title">Network Interfaces</div>
+            <table>
+              <tr><th>Interface</th><th>Family</th><th>Address</th></tr>
+              {iface_rows}
+            </table>
+          </div>
+        </main>
+
+        <footer>
+          Exoscale &nbsp;/&nbsp; auto-refresh every 30s &nbsp;/&nbsp; <a href="/api">JSON API</a>
+        </footer>
+      </body>
+      </html>"""
+
+      with open("/var/www/html/index.html", "w") as f:
+          f.write(html)
+
+  - path: /etc/nginx/sites-available/vm-info
+    content: |
+      server {
+          listen 80 default_server;
+          listen [::]:80 default_server;
+
+          root /var/www/html;
+          index index.html;
+
+          location / {
+              try_files $uri $uri/ =404;
+          }
+
+          location = /api {
+              root /var/www/html;
+              default_type application/json;
+              add_header Access-Control-Allow-Origin *;
+              add_header Cache-Control "no-cache, no-store, must-revalidate";
+          }
+      }
+
+  - path: /etc/systemd/system/vm-info.service
+    content: |
+      [Unit]
+      Description=Collect VM information for the web dashboard
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/collect-vm-info.py
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/systemd/system/vm-info.timer
+    content: |
+      [Unit]
+      Description=Run vm-info collector every 5 minutes
+
+      [Timer]
+      OnBootSec=30
+      OnUnitActiveSec=5min
+
+      [Install]
+      WantedBy=timers.target
+
+runcmd:
+  - rm -f /etc/nginx/sites-enabled/default
+  - ln -sf /etc/nginx/sites-available/vm-info /etc/nginx/sites-enabled/vm-info
+  - nginx -t && systemctl enable --now nginx
+  - /usr/local/bin/collect-vm-info.py
+  - systemctl daemon-reload
+  - systemctl enable --now vm-info.timer
