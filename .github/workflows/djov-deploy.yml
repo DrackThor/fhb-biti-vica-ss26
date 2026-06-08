@@ -39,7 +39,7 @@ jobs:
 
       - name: Terraform Init
         run: |
-          terraform init
+          terraform init -input=false -reconfigure
 
       - name: Terraform Plan
         run: 
