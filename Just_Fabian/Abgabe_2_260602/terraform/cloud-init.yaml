@@ -1,0 +1,139 @@
+#cloud-config
+
+# Paketquellen aktualisieren
+package_update: true
+package_upgrade: true
+
+# Pakete  installieren
+packages:
+  - nginx
+  - certbot
+  - python3-certbot-nginx
+  - jq
+
+# Dateien auf die VM schreiben
+write_files:
+  # Skript für Endpunktdaten
+  - path: /usr/local/bin/info.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Sammelt Systeminfos und schreibt sie als statische Dateien.
+      set -e
+
+      OUT_DIR=/var/www/sysinfo
+      mkdir -p "$OUT_DIR"
+
+      # Systeminfos
+      HOSTNAME_VAL=$(hostname)
+      KERNEL=$(uname -r)
+      HYPERVISOR=$(systemd-detect-virt)
+      IP_ADDR=$(hostname -I | xargs)
+      MEM_TOTAL=$(free -h | awk '/^Mem:/ {print $2}')
+      MEM_USED=$(free -h  | awk '/^Mem:/ {print $3}')
+      MEM_FREE=$(free -h  | awk '/^Mem:/ {print $4}')
+      NOW=$(date '+%Y-%m-%d %H:%M:%S %Z')
+      
+      STORAGE_JSON=$(lsblk -d -o NAME,SIZE,TYPE,MODEL --json | jq '.blockdevices')
+      
+      FS_JSON=$(df -h --output=source,size,used,avail,pcent,target \
+          | tail -n +2 \
+          | jq -R -s 'split("\n") | map(select(length>0)
+              | (split(" ") | map(select(length>0)))
+              | {source:.[0], size:.[1], used:.[2], avail:.[3], use_pct:.[4], mount:.[5]})')
+
+      # JSON-Endpunkt
+      jq -n \
+        --arg     hostname    "$HOSTNAME_VAL" \
+        --arg     kernel      "$KERNEL" \
+        --arg     hypervisor  "$HYPERVISOR" \
+        --arg     ip          "$IP_ADDR" \
+        --arg     mem_total   "$MEM_TOTAL" \
+        --arg     mem_used    "$MEM_USED" \
+        --arg     mem_free    "$MEM_FREE" \
+        --arg     timestamp   "$NOW" \
+        --argjson storage     "$STORAGE_JSON" \
+        --argjson filesystems "$FS_JSON" \
+        '{hostname:$hostname, kernel:$kernel, hypervisor:$hypervisor,
+          ip_address:$ip,
+          memory:{total:$mem_total, used:$mem_used, free:$mem_free},
+          storage:$storage,
+          filesystems:$filesystems,
+          timestamp:$timestamp}' > "$OUT_DIR/api.json"
+
+      # HTML-Tabellenzeilen
+      STORAGE_ROWS=$(lsblk -d -o NAME,SIZE,TYPE \
+               | tail -n +2 \
+               | awk '{printf "<tr><td>%s</td><td>%s</td><td>%s</td></tr>\n",$1,$2,$3}')
+  
+      DISK_ROWS=$(df -h --output=source,size,used,avail,pcent,target \
+      | tail -n +2 \
+      | awk '{printf "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",$1,$2,$3,$4,$5,$6}')
+
+      # HTML-Endpunkt schreiben
+      cat > "$OUT_DIR/index.html" <<HTML
+      <!DOCTYPE html>
+      <html lang="de">
+      <head>
+        <meta charset="utf-8">
+        <title>VM Systeminfo</title>
+        <style>
+          body  { font-family: sans-serif; max-width: 800px; margin: 2rem auto; }
+          table { border-collapse: collapse; width: 100%; margin-bottom: 1.5rem; }
+          th,td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; }
+          th    { background: #f0f0f0; }
+        </style>
+      </head>
+      <body>
+          <h1>System-Informationen</h1>
+          <p>Stand: $NOW</p>
+          <table>
+            <tr><th>Hostname</th><td>$HOSTNAME_VAL</td></tr>
+            <tr><th>IP-Adresse(n)</th><td>$IP_ADDR</td></tr>
+            <tr><th>Kernel</th><td>$KERNEL</td></tr>
+            <tr><th>Hypervisor</th><td>$HYPERVISOR</td></tr>
+            <tr><th>Memory</th><td>$MEM_TOTAL gesamt / $MEM_USED belegt / $MEM_FREE frei</td></tr>
+          </table>
+        <h2>Storage (Blockgeräte)</h2>
+        <table>
+          <tr><th>Gerät</th><th>Größe</th><th>Typ</th></tr>
+          $STORAGE_ROWS
+        </table>
+        <h2>Filesysteme</h2>
+        <table>
+          <tr><th>Quelle</th><th>Größe</th><th>Belegt</th><th>Frei</th><th>%</th><th>Mountpoint</th></tr>
+          $DISK_ROWS
+        </table>
+        <p><a href="/api">&rarr; Zur JSON-API</a></p>
+      </body>
+      </html>
+      HTML
+
+  # nginx Konfig
+  - path: /etc/nginx/sites-available/sysinfo
+    permissions: '0644'
+    content: |
+      server {
+          listen 80;
+          server_name ${fqdn};
+
+          root  /var/www/sysinfo;
+          index index.html;
+
+          # /api liefert die JSON-Datei mit passendem Content-Type
+          location = /api {
+              default_type application/json;
+              alias /var/www/sysinfo/api.json;
+          }
+      }
+
+# Info Skript ausführen
+runcmd:
+  # Infos generieren
+  - bash /usr/local/bin/info.sh
+  # sysinfo auf Webseite linken
+  - rm -f /etc/nginx/sites-enabled/default
+  - ln -s /etc/nginx/sites-available/sysinfo /etc/nginx/sites-enabled/sysinfo
+  - systemctl restart nginx
+  # HTTPS-Zertifikat mit Let's Encrypt erstellen
+  - certbot --nginx -d ${fqdn} --non-interactive --agree-tos -m ${email} --redirect
