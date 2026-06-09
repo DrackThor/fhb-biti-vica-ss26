@@ -1,0 +1,38 @@
+name: Abgabe2 Just - Infrastruktur löschen
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    env:
+      TF_VAR_exoscale_api_key:    ${{ secrets.EXOSCALE_API_KEY }}
+      TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v4
+
+      - name: Terraform installieren
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform initialisieren
+        run: terraform init
+
+      - name: Infrastruktur löschen
+        run: terraform destroy -auto-approve
+
+      # Aktualisierten State zurückspeichern
+      - name: State speichern
+        run: |
+          git config user.name  "github-actions"
+          git config user.email "github-actions@github.com"
+          git add -f terraform.tfstate
+          git commit -m "Update Terraform state (destroy)" || echo "Keine Aenderung"
+          git push
