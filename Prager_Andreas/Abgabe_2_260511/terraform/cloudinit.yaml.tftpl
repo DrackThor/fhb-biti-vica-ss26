@@ -1,0 +1,72 @@
+#cloud-config
+package_update: true
+package_upgrade: false
+
+# Definiere benötigte Packages
+packages:
+  - python3
+  - python3-pip
+  - python3-venv
+  - nginx
+  - lsb-release
+
+write_files:
+  # Schreibe Zertifikat und Private-Key ins File-System
+  # Wird in der NGINX-Konfiguration referenziert
+  - path: /etc/ssl/certs/${namespace}.crt
+    permissions: "0644"
+    content: |
+      ${indent(6, cert_pem)}
+
+  - path: /etc/ssl/private/${namespace}.key
+    permissions: "0600"
+    content: |
+      ${indent(6, key_pem)}
+
+
+  # Lege die Flask-App im File-System ab
+  # Wird in der Service-Definition referenziert
+  - path: /opt/vm-info/app.py
+    permissions: "0755"
+    content: |
+      ${indent(6, app_py)}
+
+  # Lege die NGINX-Konfiguration im File-System ab
+  # An dieser Stelle noch deaktiviert
+  - path: /etc/nginx/sites-available/vm-info
+    permissions: "0644"
+    content: |
+      ${indent(6, nginx_conf)}
+
+  # Lege die Service-Definition für die Web-App an
+  - path: /etc/systemd/system/vm-info.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=VM Info Flask App
+      After=network.target
+
+      [Service]
+      WorkingDirectory=/opt/vm-info
+      ExecStart=/opt/vm-info/venv/bin/gunicorn --workers 2 --bind 127.0.0.1:5000 app:app
+      Restart=always
+      User=root
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  # Erstelle virtuelles Environment für Python
+  - python3 -m venv /opt/vm-info/venv
+  # Installiere Flask und gunicorn
+  - /opt/vm-info/venv/bin/pip install flask gunicorn
+  # Entferne Standard-Konfiguration von NGINX
+  - rm -f /etc/nginx/sites-enabled/default
+  # Aktiviere eigene Konfiguration
+  - ln -s /etc/nginx/sites-available/vm-info /etc/nginx/sites-enabled/
+  - systemctl daemon-reload
+  # Starte VM-Info-Service
+  - systemctl enable vm-info.service
+  - systemctl start vm-info.service
+  # Neustart von NGINX um neue Konfiguration zu aktivieren
+  - systemctl restart nginx

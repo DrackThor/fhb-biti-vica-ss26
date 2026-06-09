@@ -1,0 +1,79 @@
+# ==========================================
+# GLOBAL CONFIGURATION
+# ==========================================
+{
+    # This tells Caddy to automatically provision HTTPS certificates via Let's Encrypt.
+    # Providing an email ensures you get expiration or security notices from Let's Encrypt.
+    email ${admin_email}
+
+    # Dynamically injected by Terraform and controlled via the acme_staging variable in variables.tf.
+    # Resolves to the staging CA when testing and the production CA for live deployments.
+    acme_ca ${acme_ca}
+}
+
+# ==========================================
+# NETDATA DASHBOARD DOMAIN
+# ==========================================
+${stats_domain} {
+
+    # --- Quality of Life ---
+    # Redirect root to /v3/ (trailing slash is required).
+    # Without it, Netdata would issue its own internal 301 to /v3/ using the rewritten Host header ("localhost"),
+    # causing the browser to navigate to http://localhost/v3/ on the user's own machine.
+    redir / /v3/
+
+    # --- Preflight Request Handler ---
+    # Browsers send an OPTIONS request before cross-origin fetches to check permissions.
+    # This must be a separate handle block so it resolves before reverse_proxy catches it.
+    @options {
+        method OPTIONS
+    }
+    handle @options {
+        # STRICT CORS ORIGIN: Limits preflight access exclusively to the Swagger UI domain.
+        # This replaces the insecure wildcard (*) with the dynamic API domain variable.
+        header Access-Control-Allow-Origin "https://${api_domain}"
+        header Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        header Access-Control-Allow-Headers "*"
+        respond 204
+    }
+
+    # --- Default Handler ---
+    # All non-OPTIONS traffic is proxied to Netdata. Wrapped in handle {} to avoid
+    # routing conflicts with the handle @options block above.
+    handle {
+        # --- Global CORS Policy ---
+        # STRICT CORS ORIGIN: Limits data access exclusively to the Swagger UI domain.
+        header Access-Control-Allow-Origin "https://${api_domain}"
+        header Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        header Access-Control-Allow-Headers "*"
+
+        # --- Backend Connection & Header Stripping ---
+        # Route all incoming traffic on this domain to the Netdata Docker container
+        # running locally on port 19999.
+        reverse_proxy localhost:19999 {
+
+            # Ghost Proxy Fix: Netdata rejects external domain names for security reasons.
+            # This rewrites the request to look like it came from "localhost", tricking
+            # Netdata into accepting it and preventing an HTTP 400 Bad Request error.
+            header_up Host localhost
+
+            # Strip duplicate headers: Netdata's embedded web server sends its own CORS headers.
+            # We delete them here as the traffic passes through Caddy so they don't conflict
+            # with our global Caddy headers above.
+            header_down -Access-Control-Allow-Origin
+            header_down -Access-Control-Allow-Methods
+            header_down -Access-Control-Allow-Headers
+        }
+    }
+}
+
+# ==========================================
+# SWAGGER UI DOMAIN
+# ==========================================
+${api_domain} {
+
+    # Route all incoming traffic on this domain to the Swagger UI Docker container
+    # running locally on port 8080.
+    # (Caddy automatically handles the HTTPS certificates for this domain as well).
+    reverse_proxy localhost:8080
+}

@@ -1,0 +1,61 @@
+name: Create Exoscale Infrastructure
+
+on:
+  workflow_dispatch:
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+
+    # Standard Arbeitsverzeichnis für alle Befehle
+    defaults:
+      run:
+        working-directory: ./Blazovich_Fabian/Abgabe_2_260603
+
+    # Umgebungsvariablen
+    env:
+
+      # Exoscale API Key aus GitHub Secrets
+      TF_VAR_exoscale_key: ${{ secrets.EXOSCALE_API_KEY }}
+
+      # Exoscale API Secret aus GitHub Secrets
+      TF_VAR_exoscale_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # Speicherort des Terraform States
+      TF_STATE_PATH: ./Blazovich_Fabian/Abgabe_2_260603/terraform.tfstate
+
+    steps:
+
+      # Lädt das Repository auf den Runner
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # Installiert OpenTofu
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+
+      # Initialisiert OpenTofu und lädt Provider
+      - name: Initialize OpenTofu
+        run: tofu init
+
+      # Überprüft die OpenTofu Konfiguration
+      - name: Validate OpenTofu configuration
+        run: tofu validate 
+
+      # Erstellt einen Infrastruktur-Plan
+      - name: Plan OpenTofu
+        run: tofu plan 
+        
+      # Erstellt die Infrastruktur in Exoscale
+      - name: OpenTofu Apply
+        run: tofu apply -auto-approve
+
+ # Speichert den  OpenTofu-State als GitHub Cache.
+      # Dieser State wird später vom Destroy-Workflow benötigt.
+      - name: Upload Terraform State
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fblazovich-tofu-state
+          path: ${{ env.TF_STATE_PATH }}
+          retention-days: 5

@@ -1,0 +1,84 @@
+name: Infrastruktur erstellen
+
+# Der Workflow ist absichtlich nur manuell startbar, damit keine Exoscale-Kosten
+# durch normale Pushes oder Pull Requests entstehen.
+on:
+  workflow_dispatch:
+    inputs:
+      dns_zone:
+        description: "Optionale Exoscale-DNS-Zone fuer HTTPS, z. B. example.at"
+        required: false
+        type: string
+      dns_record_name:
+        description: "Optionaler Hostname innerhalb der Zone"
+        required: false
+        default: "vica-rwagner"
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  TF_WORKDIR: Wagner_Raphael/Abgabe_2_260607/terraform
+  TF_STATE_BUCKET: ${{ vars.RWAGNER_TF_STATE_BUCKET || 'rwagner-abgabe2-tfstate' }}
+  TF_VAR_dns_zone: ${{ inputs.dns_zone }}
+  TF_VAR_dns_record_name: ${{ inputs.dns_record_name }}
+  TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.EXOSCALE_API_KEY }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.EXOSCALE_API_SECRET }}
+  AWS_DEFAULT_REGION: at-vie-1
+  EXOSCALE_API_KEY: ${{ secrets.EXOSCALE_API_KEY }}
+  EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: OpenTofu installieren
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.9.0"
+
+      - name: State-Bucket sicherstellen
+        # Der Bucket speichert den OpenTofu-State fuer spaetere Destroy-Laeufe.
+        run: |
+          aws --endpoint-url "https://sos-at-vie-1.exo.io" s3 mb "s3://${TF_STATE_BUCKET}" || true
+
+      - name: OpenTofu format pruefen
+        working-directory: ${{ env.TF_WORKDIR }}
+        run: tofu fmt -check -recursive
+
+      - name: OpenTofu init
+        working-directory: ${{ env.TF_WORKDIR }}
+        run: tofu init -input=false -backend-config="bucket=${TF_STATE_BUCKET}"
+
+      - name: OpenTofu validate
+        working-directory: ${{ env.TF_WORKDIR }}
+        run: tofu validate
+
+      - name: OpenTofu plan
+        working-directory: ${{ env.TF_WORKDIR }}
+        run: tofu plan -input=false -out=tfplan
+
+      - name: OpenTofu apply
+        working-directory: ${{ env.TF_WORKDIR }}
+        run: tofu apply -input=false -auto-approve tfplan
+
+      - name: Ergebnis zusammenfassen
+        working-directory: ${{ env.TF_WORKDIR }}
+        run: |
+          {
+            echo "## Abgabe 2 erstellt"
+            echo ""
+            echo "| Wert | URL |"
+            echo "|------|-----|"
+            echo "| Website | $(tofu output -raw website_url) |"
+            echo "| JSON API | $(tofu output -raw api_url) |"
+            echo "| Public IP | $(tofu output -raw instance_ip) |"
+            echo ""
+            echo "CloudInit braucht nach dem Apply meistens noch 1 bis 2 Minuten."
+          } >> "$GITHUB_STEP_SUMMARY"

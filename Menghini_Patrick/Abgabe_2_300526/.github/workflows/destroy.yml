@@ -1,0 +1,41 @@
+name: "pmen753 - delete"
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  terraform-destroy:
+    name: "Terraform Destroy"
+    runs-on: ubuntu-latest
+
+    env:
+      EXOSCALE_API_KEY: ${{ secrets.EXOSCALE_API_KEY }}
+      EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+      EXOSCALE_CONFIG: ""
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: terraform init -reconfigure
+        working-directory: ./Menghini_Patrick/Abgabe_2_300526/terraform
+
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve
+        working-directory: ./Menghini_Patrick/Abgabe_2_300526/terraform
+
+      - name: Remove State File from Repo
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git rm -f ./Menghini_Patrick/Abgabe2_300526/terraform/terraform.tfstate || echo "Keine State Datei zum Loeschen"
+          git commit -m "State-Update: Infrastruktur geloescht [skip ci]" || echo "Keine Aenderungen"
+          git push

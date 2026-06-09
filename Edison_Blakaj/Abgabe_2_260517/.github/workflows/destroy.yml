@@ -1,0 +1,44 @@
+name: Destroy Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'destroy' to confirm"
+        required: true
+        default: ""
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm == 'destroy'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.8.0"
+
+      - name: Restore Terraform state
+        uses: actions/cache@v4
+        with:
+          path: Abgabe_2_260517/terraform/terraform.tfstate
+          key: tfstate-${{ github.ref_name }}
+          restore-keys: tfstate-
+
+      - name: Init
+        working-directory: Abgabe_2_260517/terraform
+        env:
+          EXOSCALE_API_KEY:    ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+        run: tofu init
+
+      - name: Destroy
+        working-directory: Abgabe_2_260517/terraform
+        env:
+          EXOSCALE_API_KEY:    ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+        run: tofu destroy -auto-approve

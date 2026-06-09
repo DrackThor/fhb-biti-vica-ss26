@@ -1,0 +1,420 @@
+#cloud-config
+hostname: fhb-biti-vica
+manage_etc_hosts: true
+
+package_update: true
+package_upgrade: true
+packages:
+  - nginx          # Webserver
+  - python3        # Für das Info-Skript
+  - python3-pip    # Python Paketmanager
+  - jq             # JSON-Verarbeitung in der Shell
+  - curl           # HTTP-Client (z.B. für Metadaten-Abfrage)
+  - lsb-release    # OS-Versionsinformationen
+  - dmidecode      # Hardware/Hypervisor-Informationen
+  - util-linux     # lsblk etc.
+
+write_files:
+
+  - path: /opt/vm-info/collect.py
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env python3
+      """
+      Sammelt technische VM-Informationen und schreibt sie als:
+        - /var/www/html/api/data.json   (JSON API)
+        - /var/www/html/index.html      (HTML Website)
+      """
+      import json
+      import subprocess
+      import socket
+      import os
+      import platform
+      import datetime
+
+      def run(cmd):
+          """Führt Shell-Befehl aus und gibt stdout zurück."""
+          try:
+              result = subprocess.run(
+                  cmd, shell=True, capture_output=True, text=True, timeout=5
+              )
+              return result.stdout.strip()
+          except Exception:
+              return "N/A"
+
+      def get_metadata(path):
+          """Liest Exoscale Instance Metadata vom Link-Local-Endpunkt."""
+          try:
+              import urllib.request
+              url = f"http://metadata.exoscale.com/latest/meta-data/{path}"
+              with urllib.request.urlopen(url, timeout=3) as r:
+                  return r.read().decode().strip()
+          except Exception:
+              return "N/A"
+
+      # ---- Daten sammeln ----
+
+      # Netzwerk
+      public_ip  = get_metadata("public-ipv4")
+      local_ip   = run("hostname -I | awk '{print $1}'")
+      hostname   = socket.getfqdn()
+
+      # CPU
+      cpu_model  = run("grep 'model name' /proc/cpuinfo | head -1 | cut -d: -f2")
+      cpu_cores  = run("nproc")
+
+      # Arbeitsspeicher (in MB)
+      mem_total  = run("awk '/MemTotal/ {printf \"%.0f MB\", $2/1024}' /proc/meminfo")
+      mem_free   = run("awk '/MemAvailable/ {printf \"%.0f MB\", $2/1024}' /proc/meminfo")
+
+      # Betriebssystem & Kernel
+      os_pretty  = run("cat /etc/os-release | grep PRETTY_NAME | cut -d= -f2 | tr -d '\"'")
+      kernel     = platform.release()
+      arch       = platform.machine()
+
+      # Hypervisor-Erkennung via DMI (erfordert dmidecode)
+      hypervisor = run("systemd-detect-virt 2>/dev/null || echo 'unknown'")
+      dmi_vendor = run("cat /sys/class/dmi/id/sys_vendor 2>/dev/null || echo 'N/A'")
+      dmi_product = run("cat /sys/class/dmi/id/product_name 2>/dev/null || echo 'N/A'")
+
+      # Uptime
+      uptime_sec = run("awk '{print int($1)}' /proc/uptime")
+      try:
+          uptime_h = str(datetime.timedelta(seconds=int(uptime_sec)))
+      except:
+          uptime_h = uptime_sec
+
+      # Disk / Dateisysteme (lsblk als JSON)
+      lsblk_raw = run("lsblk -J -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE 2>/dev/null")
+      try:
+          lsblk_data = json.loads(lsblk_raw).get("blockdevices", [])
+      except:
+          lsblk_data = []
+
+      # Gemountete Dateisysteme mit Nutzung
+      df_raw = run("df -h --output=source,fstype,size,used,avail,pcent,target -x tmpfs -x devtmpfs -x overlay 2>/dev/null")
+      filesystems = []
+      for line in df_raw.splitlines()[1:]:  # Header überspringen
+          parts = line.split()
+          if len(parts) >= 7:
+              filesystems.append({
+                  "device":      parts[0],
+                  "fstype":      parts[1],
+                  "size":        parts[2],
+                  "used":        parts[3],
+                  "available":   parts[4],
+                  "use_percent": parts[5],
+                  "mountpoint":  parts[6],
+              })
+
+      # Load Average
+      load_avg = run("cat /proc/loadavg | awk '{print $1, $2, $3}'")
+
+      # Timestamp der Datenerhebung
+      timestamp = datetime.datetime.utcnow().isoformat() + "Z"
+
+      # ---- JSON zusammenbauen ----
+      info = {
+          "meta": {
+              "collected_at": timestamp,
+              "description":  "VM Technical Information - FHB BITI VICA SS26"
+          },
+          "network": {
+              "hostname":    hostname,
+              "public_ip":   public_ip,
+              "local_ip":    local_ip,
+          },
+          "cpu": {
+              "model":  cpu_model.strip(),
+              "cores":  cpu_cores,
+          },
+          "memory": {
+              "total":     mem_total,
+              "available": mem_free,
+          },
+          "os": {
+              "pretty_name": os_pretty,
+              "kernel":      kernel,
+              "architecture":arch,
+          },
+          "hypervisor": {
+              "type":        hypervisor,
+              "vendor":      dmi_vendor,
+              "product":     dmi_product,
+          },
+          "system": {
+              "uptime":      uptime_h,
+              "load_avg":    load_avg,
+          },
+          "filesystems":   filesystems,
+          "block_devices": lsblk_data,
+      }
+
+      # ---- JSON schreiben ----
+      os.makedirs("/var/www/html/api", exist_ok=True)
+      with open("/var/www/html/api/data.json", "w") as f:
+          json.dump(info, f, indent=2)
+
+      # ---- HTML schreiben ----
+      def fs_rows(filesystems):
+          """Baut HTML-Tabellenzeilen für Dateisysteme."""
+          rows = ""
+          for fs in filesystems:
+              pct = fs['use_percent'].replace('%','')
+              try:
+                  pct_int = int(pct)
+                  color = "#e74c3c" if pct_int > 85 else "#f39c12" if pct_int > 60 else "#27ae60"
+              except:
+                  color = "#27ae60"
+              rows += f"""
+              <tr>
+                <td><code>{fs['device']}</code></td>
+                <td>{fs['fstype']}</td>
+                <td>{fs['size']}</td>
+                <td>{fs['used']}</td>
+                <td>{fs['available']}</td>
+                <td><span style="color:{color};font-weight:bold">{fs['use_percent']}</span></td>
+                <td><code>{fs['mountpoint']}</code></td>
+              </tr>"""
+          return rows
+
+      html = f"""<!DOCTYPE html>
+      <html lang="de">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="refresh" content="60">
+        <title>VM Info – {hostname}</title>
+        <style>
+          * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+          body {{
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 2rem;
+          }}
+          h1 {{ font-size: 1.8rem; color: #38bdf8; margin-bottom: 0.25rem; }}
+          .subtitle {{ color: #64748b; font-size: 0.9rem; margin-bottom: 2rem; }}
+          .grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+          }}
+          .card {{
+            background: #1e293b;
+            border-radius: 10px;
+            padding: 1.25rem;
+            border: 1px solid #334155;
+          }}
+          .card h2 {{
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #94a3b8;
+            margin-bottom: 0.75rem;
+          }}
+          .card .value {{
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #f1f5f9;
+          }}
+          .card .label {{
+            font-size: 0.8rem;
+            color: #64748b;
+            margin-top: 0.2rem;
+          }}
+          table {{
+            width: 100%;
+            border-collapse: collapse;
+            background: #1e293b;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid #334155;
+          }}
+          th {{
+            background: #0f172a;
+            padding: 0.75rem 1rem;
+            text-align: left;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            color: #94a3b8;
+            letter-spacing: 0.05em;
+          }}
+          td {{
+            padding: 0.65rem 1rem;
+            border-top: 1px solid #334155;
+            font-size: 0.9rem;
+          }}
+          code {{
+            background: #0f172a;
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            color: #38bdf8;
+          }}
+          .badge {{
+            display: inline-block;
+            padding: 0.2rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background: #0ea5e9;
+            color: #fff;
+          }}
+          .footer {{
+            margin-top: 2rem;
+            color: #475569;
+            font-size: 0.8rem;
+          }}
+          .api-link {{
+            display: inline-block;
+            margin-top: 1rem;
+            padding: 0.5rem 1.2rem;
+            background: #0ea5e9;
+            color: #fff;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 0.9rem;
+          }}
+          .api-link:hover {{ background: #0284c7; }}
+        </style>
+      </head>
+      <body>
+        <h1>🖥️ VM Technical Info</h1>
+        <p class="subtitle">Hostname: <strong>{hostname}</strong> &nbsp;|&nbsp; Letzte Aktualisierung: {timestamp} &nbsp;|&nbsp; <span class="badge">Live</span></p>
+
+        <div class="grid">
+          <div class="card">
+            <h2>🌐 Public IP</h2>
+            <div class="value">{public_ip}</div>
+            <div class="label">Local: {local_ip}</div>
+          </div>
+          <div class="card">
+            <h2>🧠 CPU</h2>
+            <div class="value">{cpu_cores} vCPUs</div>
+            <div class="label">{cpu_model.strip()}</div>
+          </div>
+          <div class="card">
+            <h2>💾 Memory</h2>
+            <div class="value">{mem_total}</div>
+            <div class="label">Verfügbar: {mem_free}</div>
+          </div>
+          <div class="card">
+            <h2>🐧 Betriebssystem</h2>
+            <div class="value">{os_pretty}</div>
+            <div class="label">Kernel: {kernel} ({arch})</div>
+          </div>
+          <div class="card">
+            <h2>☁️ Hypervisor</h2>
+            <div class="value">{hypervisor}</div>
+            <div class="label">{dmi_vendor} / {dmi_product}</div>
+          </div>
+          <div class="card">
+            <h2>⏱️ Uptime / Load</h2>
+            <div class="value">{uptime_h}</div>
+            <div class="label">Load Avg (1/5/15 min): {load_avg}</div>
+          </div>
+        </div>
+
+        <h2 style="margin-bottom:1rem;color:#94a3b8;font-size:1rem;text-transform:uppercase;letter-spacing:0.1em">💽 Dateisysteme</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Device</th><th>Typ</th><th>Größe</th>
+              <th>Belegt</th><th>Frei</th><th>Auslastung</th><th>Mountpoint</th>
+            </tr>
+          </thead>
+          <tbody>
+            {fs_rows(filesystems)}
+          </tbody>
+        </table>
+
+        <a class="api-link" href="/api/data.json">📡 JSON API →</a>
+
+        <p class="footer">FHB BITI VICA SS26 &nbsp;·&nbsp; Seite aktualisiert sich automatisch alle 60 Sekunden &nbsp;·&nbsp; Daten von {timestamp}</p>
+      </body>
+      </html>"""
+
+      with open("/var/www/html/index.html", "w") as f:
+          f.write(html)
+
+      print(f"[{timestamp}] VM-Info aktualisiert.")
+
+  # Nginx-Konfiguration
+  - path: /etc/nginx/sites-available/vm-info
+    permissions: '0644'
+    content: |
+      server {
+          listen 80 default_server;
+          listen [::]:80 default_server;
+
+          root /var/www/html;
+          index index.html;
+
+          server_name _;
+
+          # HTML-Website: Startseite
+          location / {
+              try_files $uri $uri/ =404;
+              # Kein Client-Side-Caching – Infos sollen immer aktuell sein
+              add_header Cache-Control "no-cache, no-store, must-revalidate";
+          }
+
+          # JSON API-Endpunkt: /api oder /api/data.json
+          location /api {
+              alias /var/www/html/api;
+              try_files /data.json =404;
+              # Korrekter Content-Type für JSON
+              add_header Content-Type "application/json; charset=utf-8";
+              add_header Access-Control-Allow-Origin "*";
+              add_header Cache-Control "no-cache, no-store, must-revalidate";
+          }
+      }
+
+  # Systemd-Service
+  - path: /etc/systemd/system/vm-info.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=VM Info Collector (schreibt HTML + JSON)
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/bin/python3 /opt/vm-info/collect.py
+      # Sicherstellen dass Verzeichnis existiert
+      ExecStartPre=/bin/mkdir -p /var/www/html/api
+
+  # Systemd-Timer: Alle 60 Sekunden Info aktualisieren
+  - path: /etc/systemd/system/vm-info.timer
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=VM Info Timer (jede Minute)
+      Requires=vm-info.service
+
+      [Timer]
+      OnBootSec=10sec
+      OnUnitActiveSec=60sec
+      Unit=vm-info.service
+
+      [Install]
+      WantedBy=timers.target
+
+runcmd:
+  - rm -f /etc/nginx/sites-enabled/default
+  - ln -sf /etc/nginx/sites-available/vm-info /etc/nginx/sites-enabled/vm-info
+
+  - nginx -t
+  - systemctl enable nginx
+  - systemctl start nginx
+
+  - systemctl daemon-reload
+  - systemctl enable vm-info.timer
+  - systemctl start vm-info.timer
+
+  - python3 /opt/vm-info/collect.py
+
+  - systemctl reload nginx

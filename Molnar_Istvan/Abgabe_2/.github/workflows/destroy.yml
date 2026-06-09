@@ -1,0 +1,65 @@
+# =============================================================================
+# destroy.yml – GitHub Actions Workflow: Infrastruktur löschen
+# =============================================================================
+# Löscht alle Exoscale-Ressourcen. Erfordert Bestätigung mit "DESTROY".
+# =============================================================================
+
+name: Destroy Infrastruktur
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_destroy:
+        description: "Gib 'DESTROY' ein zur Bestätigung"
+        required: true
+      zone:
+        description: "Exoscale Zone"
+        required: false
+        default: "at-vie-1"
+        type: choice
+        options:
+          - at-vie-1
+          - at-vie-2
+          - de-fra-1
+
+concurrency:
+  group: terraform
+  cancel-in-progress: false
+
+jobs:
+  destroy:
+    name: Infrastruktur löschen
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Bestätigung prüfen
+        run: |
+          if [ "${{ github.event.inputs.confirm_destroy }}" != "DESTROY" ]; then
+            echo "Fehler: Gib exakt 'DESTROY' ein!"
+            exit 1
+          fi
+
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: OpenTofu installieren
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.8.0"
+
+      - name: OpenTofu initialisieren
+        working-directory: Abgabe_2_MolnarIstvan/terraform
+        run: tofu init
+
+      - name: Infrastruktur löschen
+        working-directory: Abgabe_2_MolnarIstvan/terraform
+        env:
+          TF_VAR_exoscale_api_key:    ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+          TF_VAR_zone:                ${{ github.event.inputs.zone || 'at-vie-1' }}
+        run: tofu destroy -auto-approve -input=false
+
+      - name: Zusammenfassung
+        run: |
+          echo "## Infrastruktur gelöscht" >> $GITHUB_STEP_SUMMARY
+          echo "Ausgeführt von: @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY

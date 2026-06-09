@@ -1,0 +1,59 @@
+#cloud-config
+
+# Aktualisiert Paketquellen und installiert verfügbare Updates beim ersten Start.
+package_update: true
+package_upgrade: true
+
+# Benötigte Pakete für Webserver, Systeminformationen und Netzwerkinformationen.
+packages:
+  - python3      # Laufzeitumgebung für den Webserver
+  - nginx        # Öffentlicher Webserver und Reverse Proxy
+  - snapd
+  - util-linux   # Tools wie lsblk und systemd-detect-virt
+  - iproute2     # Netzwerktools wie ip
+  - coreutils    # Basiswerkzeuge wie df
+
+# Erstellt die benötigten Dateien auf der VM.
+write_files:
+  # Python-Webserver für HTML- und JSON-Endpunkt.
+  - path: /opt/vm-info-server.py
+    owner: root:root
+    permissions: '0755'
+    content: |
+      ${replace(server_py, "\n", "\n      ")}
+
+  # systemd-Service zum automatischen Starten des Webservers.
+  - path: /etc/systemd/system/vm-info-server.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      ${replace(systemd_service, "\n", "\n      ")}
+
+  # nginx-Konfiguration für den öffentlichen HTTP-Zugriff.
+  - path: /etc/nginx/sites-available/vm-info
+    owner: root:root
+    permissions: '0644'
+    content: |
+      ${replace(nginx_config, "\n", "\n      ")}
+
+# Aktiviert Nginx und Python Webserver.
+runcmd:
+  # Entfernt Nginx Standardseite, aktiviert neue Konfiguration und prüft diese.
+  - rm -f /etc/nginx/sites-enabled/default
+  - ln -sf /etc/nginx/sites-available/vm-info /etc/nginx/sites-enabled/vm-info
+  - nginx -t
+
+  - systemctl daemon-reload
+  - systemctl enable vm-info-server.service
+  - systemctl start vm-info-server.service
+  - systemctl enable nginx
+  - systemctl restart nginx
+
+  # Installiert Certbot mit snap und erstellt Let's-Encrypt-Zertifikat.
+  - snap install core
+  - snap refresh core
+  - snap install --classic certbot
+  - ln -sf /snap/bin/certbot /usr/local/bin/certbot
+  
+  - sleep 60 # Pragmatische Lösung damit die DNS-Auflösung funktioniert.
+  - certbot --nginx -d ${fqdn} --non-interactive --agree-tos -m ${certbot_email} --redirect
