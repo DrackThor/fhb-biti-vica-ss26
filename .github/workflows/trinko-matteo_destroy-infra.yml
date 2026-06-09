@@ -1,0 +1,54 @@
+name: Destroy Exoscale Infrastructure
+
+# Der Workflow wird manuell über die GitHub Actions Oberfläche gestartet.
+on:
+  workflow_dispatch:
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+
+    # contents: read wird für den Checkout benötigt.
+    # actions: write wird benötigt, um den GitHub Cache nach dem Destroy zu löschen.
+    permissions:
+      contents: read
+      actions: write
+
+    # Alle OpenTofu-Befehle werden im Abgabeordner ausgeführt.
+    defaults:
+      run:
+        working-directory: ./Trinko_Matteo/Abgabe_2_260526
+
+    # Exoscale-Zugangsdaten werden sicher aus GitHub Secrets geladen.
+    env:
+      EXOSCALE_API_KEY: ${{ secrets.EXOSCALE_API_KEY }}
+      EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+
+    steps:
+      # Lädt den Repository-Inhalt in den GitHub Actions Runner.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Installiert OpenTofu im Runner.
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+
+      # Lädt den beim Create-Workflow gespeicherten State.
+      # Ohne diesen State weiß OpenTofu nicht, welche Ressourcen gelöscht werden sollen.
+      - name: Restore OpenTofu state cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ./Trinko_Matteo/Abgabe_2_260526/terraform.tfstate
+          key: opentofu-state
+
+      # Initialisiert OpenTofu und lädt die benötigten Provider.
+      - name: Initialize OpenTofu
+        run: tofu init
+
+      # Zeigt vorab, welche Ressourcen gelöscht werden.
+      - name: Show destroy plan
+        run: tofu plan -destroy
+
+      # Löscht die im State verwaltete Exoscale-Infrastruktur.
+      - name: Destroy infrastructure
+        run: tofu destroy -auto-approve

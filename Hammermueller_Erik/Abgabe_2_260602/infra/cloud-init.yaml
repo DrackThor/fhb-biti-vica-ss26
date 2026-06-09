@@ -1,0 +1,68 @@
+#cloud-config
+
+package_update: true
+
+packages:
+  - nginx
+
+runcmd:
+
+  # HTML-Seite erzeugen
+  - |
+    cat > /var/www/html/index.html <<EOF
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>VM Informationen</title>
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          margin: 40px;
+        }
+        table {
+          border-collapse: collapse;
+        }
+        td, th {
+          border: 1px solid black;
+          padding: 8px;
+        }
+      </style>
+    </head>
+    <body>
+
+    <h1>VM Informationen</h1>
+
+    <table>
+      <tr><th>Eigenschaft</th><th>Wert</th></tr>
+      <tr><td>Hostname</td><td>$(hostname)</td></tr>
+      <tr><td>IP-Adresse</td><td>$(hostname -I)</td></tr>
+      <tr><td>Kernel</td><td>$(uname -r)</td></tr>
+      <tr><td>Betriebssystem</td><td>$(grep PRETTY_NAME /etc/os-release | cut -d= -f2 | tr -d '"')</td></tr>
+      <tr><td>CPU</td><td>$(nproc) Kerne</td></tr>
+      <tr><td>RAM</td><td>$(free -h | awk '/Mem:/ {print $2}')</td></tr>
+      <tr><td>Root Filesystem</td><td>$(df -h / | awk 'NR==2 {print $2}')</td></tr>
+      <tr><td>Freier Speicher</td><td>$(df -h / | awk 'NR==2 {print $4}')</td></tr>
+      <tr><td>Uptime</td><td>$(uptime -p)</td></tr>
+    </table>
+
+    </body>
+    </html>
+    EOF
+
+  # JSON API erzeugen
+  - |
+    cat > /var/www/html/api.json <<EOF
+    {
+      "hostname": "$(hostname)",
+      "ip": "$(hostname -I | xargs)",
+      "kernel": "$(uname -r)",
+      "os": "$(grep PRETTY_NAME /etc/os-release | cut -d= -f2 | tr -d '"')",
+      "cpu_cores": "$(nproc)",
+      "memory": "$(free -h | awk '/Mem:/ {print $2}')",
+      "disk": "$(df -h / | awk 'NR==2 {print $2}')",
+      "uptime": "$(uptime -p)"
+    }
+    EOF
+
+  - systemctl enable nginx
+  - systemctl restart nginx

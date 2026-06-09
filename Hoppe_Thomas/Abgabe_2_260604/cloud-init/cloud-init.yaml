@@ -1,0 +1,159 @@
+#cloud-config
+# cloud-init.yaml - Automatische VM-Konfiguration
+# Variablen: ${domain}, ${email}, ${eip}
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - nginx
+  - python3
+  - certbot
+  - python3-certbot-nginx
+  - curl
+  - dmidecode
+  - net-tools
+
+write_files:
+  # Python Backend - liefert /api (JSON) und / (HTML)
+  - path: /opt/vminfo/app.py
+    owner: root:root
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env python3
+      import os, json, socket, platform, subprocess
+      from datetime import datetime, timezone
+      from http.server import HTTPServer, BaseHTTPRequestHandler
+
+      def cmd(c):
+        try: return subprocess.run(c,shell=True,capture_output=True,text=True,timeout=5).stdout.strip()
+        except: return ""
+
+      def rf(p):
+        try:
+          with open(p) as f: return f.read().strip()
+        except: return ""
+
+      def info():
+        mem = {}
+        for l in rf("/proc/meminfo").splitlines():
+          p = l.split()
+          if len(p) >= 2: mem[p[0].rstrip(":")] = round(int(p[1])/1024,1) if p[1].isdigit() else 0
+        disks = []
+        for l in cmd("df -T -x tmpfs -x devtmpfs -x squashfs").splitlines()[1:]:
+          p = l.split()
+          if len(p) >= 7: disks.append({"device":p[0],"fstype":p[1],"size":p[2],"used":p[3],"available":p[4],"use_percent":p[5],"mount_point":p[6]})
+        net = []
+        try:
+          for i in json.loads(cmd("ip -j addr") or "[]"):
+            if i.get("ifname") != "lo":
+              net.append({"name":i.get("ifname",""),"mac":i.get("address",""),"state":i.get("operstate",""),"addresses":[{"family":a.get("family",""),"address":a.get("local",""),"prefix_len":a.get("prefixlen","")} for a in i.get("addr_info",[])]})
+        except: pass
+        up = float(rf("/proc/uptime").split()[0]) if rf("/proc/uptime") else 0
+        cpu_model, cores = "", 0
+        for l in rf("/proc/cpuinfo").splitlines():
+          if l.startswith("model name") and not cpu_model: cpu_model = l.split(":",1)[1].strip()
+          if l.startswith("processor"): cores += 1
+        return {
+          "timestamp": datetime.now(timezone.utc).isoformat(),
+          "hostname": socket.gethostname(),
+          "kernel": {"version":platform.release(),"full":cmd("uname -a"),"os":platform.system(),"distribution":cmd("lsb_release -d 2>/dev/null | cut -f2")},
+          "hypervisor": {"type":cmd("systemd-detect-virt"),"product":cmd("dmidecode -s system-product-name 2>/dev/null"),"manufacturer":cmd("dmidecode -s system-manufacturer 2>/dev/null"),"hypervisor_flag":"hypervisor" in rf("/proc/cpuinfo").lower()},
+          "cpu": {"model":cpu_model or "Unknown","cores":cores,"architecture":platform.machine()},
+          "memory": {"total_mb":mem.get("MemTotal",0),"available_mb":mem.get("MemAvailable",0),"used_mb":round(mem.get("MemTotal",0)-mem.get("MemAvailable",0),1),"swap_total_mb":mem.get("SwapTotal",0),"swap_used_mb":round(mem.get("SwapTotal",0)-mem.get("SwapFree",0),1)},
+          "disks": disks, "network": net,
+          "uptime": {"seconds":int(up),"hours":round(up/3600,2),"human":cmd("uptime -p")},
+          "load_average": {"1min":os.getloadavg()[0],"5min":os.getloadavg()[1],"15min":os.getloadavg()[2]}
+        }
+
+      def get_html(domain):
+        d = open("/opt/vminfo/domain.txt").read().strip() if os.path.exists("/opt/vminfo/domain.txt") else domain
+        return open("/opt/vminfo/index.html").read().replace("__DOMAIN__", d).encode("utf-8")
+
+      class H(BaseHTTPRequestHandler):
+        def log_message(self, *a): pass
+        def send_json(self, code, data):
+          body = json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8")
+          self.send_response(code)
+          self.send_header("Content-Type", "application/json; charset=utf-8")
+          self.send_header("Content-Length", str(len(body)))
+          self.send_header("Access-Control-Allow-Origin", "*")
+          self.end_headers()
+          self.wfile.write(body)
+        def do_GET(self):
+          if self.path in ("/api", "/api/"): self.send_json(200, info())
+          elif self.path == "/api/health": self.send_json(200, {"status":"ok","timestamp":datetime.now(timezone.utc).isoformat()})
+          elif self.path in ("/", "/index.html"):
+            html = get_html("")
+            self.send_response(200)
+            self.send_header("Content-Type","text/html; charset=utf-8")
+            self.send_header("Content-Length",str(len(html)))
+            self.end_headers()
+            self.wfile.write(html)
+          else: self.send_json(404, {"error":"Not found"})
+
+      if __name__ == "__main__":
+        server = HTTPServer(("127.0.0.1", 8080), H)
+        server.serve_forever()
+
+  # systemd Service
+  - path: /etc/systemd/system/vminfo.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=VM Info API
+      After=network.target
+      [Service]
+      Type=simple
+      User=root
+      ExecStart=/usr/bin/python3 /opt/vminfo/app.py
+      Restart=always
+      RestartSec=5
+      StandardOutput=journal
+      StandardError=journal
+      [Install]
+      WantedBy=multi-user.target
+
+  # nginx Konfiguration
+  - path: /etc/nginx/sites-available/vminfo
+    owner: root:root
+    permissions: '0644'
+    content: |
+      server {
+          listen 80;
+          listen [::]:80;
+          server_name ${domain};
+          location /.well-known/acme-challenge/ { root /var/www/certbot; }
+          location / { return 301 https://$$host$$request_uri; }
+      }
+      server {
+          listen 443 ssl;
+          listen [::]:443 ssl;
+          server_name ${domain};
+          ssl_certificate /etc/letsencrypt/live/${domain}/fullchain.pem;
+          ssl_certificate_key /etc/letsencrypt/live/${domain}/privkey.pem;
+          ssl_protocols TLSv1.2 TLSv1.3;
+          ssl_prefer_server_ciphers off;
+          add_header Strict-Transport-Security "max-age=63072000" always;
+          location /api { proxy_pass http://127.0.0.1:8080; proxy_set_header Host $$host; }
+          location / { proxy_pass http://127.0.0.1:8080; proxy_set_header Host $$host; }
+      }
+
+runcmd:
+  - mkdir -p /var/www/certbot /opt/vminfo
+  - echo "${domain}" > /opt/vminfo/domain.txt
+  # HTML-Seite aus GitHub herunterladen (umgeht die 32KB cloud-init Limitierung)
+  - curl -sL "https://raw.githubusercontent.com/autozeitung/fhb-biti-vica-ss26/main/Hoppe_Thomas/Abgabe_2_260604/cloud-init/index.html" -o /opt/vminfo/index.html || echo '<html><body><p>VM Info: <a href="/api">/api</a></p></body></html>' > /opt/vminfo/index.html
+  - chmod +x /opt/vminfo/app.py
+  - rm -f /etc/nginx/sites-enabled/default
+  - ln -sf /etc/nginx/sites-available/vminfo /etc/nginx/sites-enabled/vminfo
+  - systemctl daemon-reload
+  - systemctl enable vminfo && systemctl start vminfo
+  - nginx -t && systemctl enable nginx && systemctl restart nginx
+  - sleep 5
+  - certbot --non-interactive --agree-tos --nginx -d ${domain} -m ${email} --redirect || echo "Certbot fehlgeschlagen"
+  - systemctl restart nginx
+  - echo "0 3 * * * root certbot renew --quiet && systemctl reload nginx" > /etc/cron.d/certbot-renew
+
+final_message: "VM-Konfiguration abgeschlossen! Domain: ${domain}"

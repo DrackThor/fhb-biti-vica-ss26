@@ -1,0 +1,121 @@
+#cloud-config
+
+# Aktualisiert die Paketlisten
+package_update: true
+package_upgrade: false
+
+# Installiert Nginx automatisch
+packages:
+  - nginx
+
+# Erstellt Dateien auf der VM
+write_files:
+
+  # Erstellt die nginx Konfigurationsdatei
+  - path: /etc/nginx/sites-available/meine-website
+
+    # Dateiberechtigung
+    permissions: "0644"
+
+    # Inhalt der nginx Konfiguration
+    content: |
+      server {
+          listen 80;
+          listen [::]:80;
+
+          server_name _;
+
+          root /var/www/meine-website/html;
+          index index.html;
+
+          location / {
+              try_files $uri $uri/ =404;
+          }
+
+          location = /api {
+              default_type application/json;
+              alias /var/www/meine-website/html/api.json;
+          }
+      }
+
+# Befehle die beim ersten Start ausgeführt werden
+runcmd:
+
+  # Erstellt das Website-Verzeichnis
+  - mkdir -p /var/www/meine-website/html
+
+  # Führt mehrere Linux Befehle aus (Hostname, IP-Adresse, OS-Info, Kernel-Version, RAM, CPU, Disk-Größe, Hypervisor)
+  - |
+    HOSTNAME=$(hostname)
+    IP=$(hostname -I | awk '{print $1}')
+    OS=$(grep PRETTY_NAME /etc/os-release | cut -d= -f2 | tr -d '"')
+    KERNEL=$(uname -r)
+    RAM=$(free -h | awk '/Mem:/ {print $2}')
+    CPU=$(lscpu | grep "Model name" | sed 's/Model name:[ \t]*//')
+    DISK=$(df -h / | awk 'NR==2 {print $2}')
+    HYPERVISOR=$(systemd-detect-virt || echo "unknown")
+
+    # Erstellt die HTML Webite
+    cat > /var/www/meine-website/html/index.html <<HTML
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>VM-Blazovich_Fabian</title>
+      <style>
+        body { font-family: Arial, sans-serif; background: #f4f6f8; color: #222; margin: 0; padding: 40px; }
+        .card { max-width: 900px; margin: auto; background: white; border-radius: 12px; padding: 32px; box-shadow: 0 4px 18px rgba(0,0,0,0.08); }
+        h1 { margin-top: 0; color: #1f4e79; }
+        .info-grid { display: grid; grid-template-columns: 220px 1fr; gap: 12px; margin-top: 24px; }
+        .label { font-weight: bold; color: #444; }
+        .value { background: #f1f3f5; padding: 8px 12px; border-radius: 6px; font-family: monospace; }
+        a { color: #1f4e79; font-weight: bold; }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <h1>Exoscale VM Info</h1>
+        <p>Diese Website wurde automatisch mit CloudInit erstellt.</p>
+
+        <div class="info-grid">
+          <div class="label">Hostname</div><div class="value">$HOSTNAME</div>
+          <div class="label">IP-Adresse</div><div class="value">$IP</div>
+          <div class="label">Betriebssystem</div><div class="value">$OS</div>
+          <div class="label">Kernel</div><div class="value">$KERNEL</div>
+          <div class="label">RAM</div><div class="value">$RAM</div>
+          <div class="label">CPU</div><div class="value">$CPU</div>
+          <div class="label">Root-Disk</div><div class="value">$DISK</div>
+          <div class="label">Hypervisor</div><div class="value">$HYPERVISOR</div>
+        </div>
+
+        <p style="margin-top: 30px;">JSON-Endpunkt: <a href="/api">/api</a></p>
+      </div>
+    </body>
+    </html>
+    HTML
+
+    # Erstellt die JSON API Datei
+    cat > /var/www/meine-website/html/api.json <<JSON
+    {
+      "hostname": "$HOSTNAME",
+      "ip": "$IP",
+      "os": "$OS",
+      "kernel": "$KERNEL",
+      "ram": "$RAM",
+      "cpu": "$CPU",
+      "disk": "$DISK",
+      "hypervisor": "$HYPERVISOR"
+    }
+    JSON
+
+  # Aktiviert die nginx Website Konfiguration
+  - ln -sf /etc/nginx/sites-available/meine-website /etc/nginx/sites-enabled/meine-website
+
+  # Entfernt die nginx Standardseite
+  - rm -f /etc/nginx/sites-enabled/default
+
+  # Überprüft die nginx Konfiguration
+  - nginx -t
+
+  # Aktiviert und startet nginx neu
+  - systemctl enable nginx
+  - systemctl restart nginx

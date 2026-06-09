@@ -1,0 +1,425 @@
+#cloud-config
+# =============================================================================
+# cloudinit.yaml – Vollautomatische OS-Konfiguration via CloudInit
+# =============================================================================
+# Dieses File konfiguriert beim ersten Boot die gesamte Ubuntu-VM:
+#   1. Hostname setzen
+#   2. System aktualisieren und Pakete installieren
+#   3. Python-Flask-App als Systemd-Service deployen
+#   4. Nginx als Reverse-Proxy konfigurieren
+#   5. (Optional) Let's Encrypt TLS-Zertifikat via Certbot einrichten
+# =============================================================================
+
+# Hostname der VM setzen (aus Terraform-Variable injiziert)
+hostname: ${hostname}
+fqdn: ${hostname}
+
+# System-Locale und Zeitzone
+locale: de_AT.UTF-8
+timezone: Europe/Vienna
+
+# Pakete installieren
+package_update: true
+package_upgrade: true
+packages:
+  - nginx              # Web-Server / Reverse-Proxy
+  - python3            # Python Runtime
+  - python3-pip        # Python Package Manager
+  - python3-flask      # Flask Web-Framework
+  - python3-psutil     # System-Metriken (CPU, RAM, Disk, ...)
+  - certbot            # Let's Encrypt Client
+  - python3-certbot-nginx  # Certbot Nginx-Plugin
+  - curl               # HTTP-Client
+  - net-tools          # ifconfig, netstat, etc.
+
+# System-User für den Flask-Service anlegen (kein Shell-Zugang)
+users:
+  - name: vminfo
+    gecos: "VM Info Service Account"
+    system: true
+    shell: /bin/false
+    no_create_home: false
+    home: /opt/vminfo
+
+# write_files: Dateien direkt schreiben (sauberer als cat in runcmd)
+write_files:
+  # --------------------------------------------------------------------------
+  # Flask-Applikation: liefert VM-Systeminformationen als HTML und JSON
+  # --------------------------------------------------------------------------
+  - path: /opt/vminfo/app.py
+    owner: vminfo:vminfo
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env python3
+      # app.py: Flask-App die VM-Systeminformationen bereitstellt
+      # Endpunkte:
+      #   GET /       -> HTML-Dashboard
+      #   GET /api    -> JSON-API
+      #   GET /health -> Health-Check
+
+      import socket
+      import platform
+      import subprocess
+      from datetime import datetime, timezone
+      from flask import Flask, jsonify, render_template_string
+      import psutil
+
+      app = Flask(__name__)
+
+      def get_system_info():
+          """Sammelt alle Systeminformationen und gibt sie als Dict zurueck."""
+          os_info = platform.uname()
+
+          # CPU-Informationen
+          cpu_info = {
+              "physical_cores": psutil.cpu_count(logical=False),
+              "logical_cores": psutil.cpu_count(logical=True),
+              "usage_percent": psutil.cpu_percent(interval=0.5),
+              "frequency_mhz": round(psutil.cpu_freq().current, 1) if psutil.cpu_freq() else None,
+              "model": get_cpu_model(),
+          }
+
+          # Arbeitsspeicher
+          vm = psutil.virtual_memory()
+          mem = {
+              "total_gb": round(vm.total / (1024**3), 2),
+              "available_gb": round(vm.available / (1024**3), 2),
+              "used_gb": round(vm.used / (1024**3), 2),
+              "percent": vm.percent,
+          }
+
+          # Swap
+          sw = psutil.swap_memory()
+          swap = {
+              "total_gb": round(sw.total / (1024**3), 2),
+              "used_gb": round(sw.used / (1024**3), 2),
+              "percent": sw.percent,
+          }
+
+          # Uptime berechnen
+          boot_dt = datetime.fromtimestamp(psutil.boot_time(), tz=timezone.utc)
+          uptime_secs = (datetime.now(timezone.utc) - boot_dt).total_seconds()
+
+          return {
+              "collected_at": datetime.now(timezone.utc).isoformat(),
+              "host": {
+                  "hostname": socket.gethostname(),
+                  "fqdn": socket.getfqdn(),
+                  "os": get_distro_info(),
+                  "kernel": os_info.release,
+                  "arch": os_info.machine,
+                  "hypervisor": detect_hypervisor(),
+                  "boot_time": boot_dt.isoformat(),
+                  "uptime": format_uptime(uptime_secs),
+              },
+              "cpu": cpu_info,
+              "memory": mem,
+              "swap": swap,
+              "filesystems": get_filesystems(),
+              "network": get_ip_addresses(),
+              "processes": len(psutil.pids()),
+          }
+
+      def get_distro_info():
+          """Liest Ubuntu-Versionsinfos aus /etc/os-release."""
+          try:
+              with open("/etc/os-release") as f:
+                  d = {}
+                  for line in f:
+                      if "=" in line:
+                          k, v = line.strip().split("=", 1)
+                          d[k] = v.strip('"')
+              return f"{d.get('NAME','Linux')} {d.get('VERSION','')}"
+          except Exception:
+              return platform.system()
+
+      def get_cpu_model():
+          """Liest das CPU-Modell aus /proc/cpuinfo."""
+          try:
+              with open("/proc/cpuinfo") as f:
+                  for line in f:
+                      if "model name" in line:
+                          return line.split(":")[1].strip()
+          except Exception:
+              pass
+          return "Unbekannt"
+
+      def get_ip_addresses():
+          """Gibt alle Netzwerkinterfaces mit IP-Adressen zurueck."""
+          interfaces = []
+          for name, addrs in psutil.net_if_addrs().items():
+              iface = {"name": name, "addresses": []}
+              for addr in addrs:
+                  family = str(addr.family)
+                  if "AF_INET" in family and not "AF_INET6" in family:
+                      iface["addresses"].append({
+                          "type": "IPv4",
+                          "address": addr.address,
+                          "netmask": addr.netmask,
+                      })
+                  elif "AF_INET6" in family:
+                      iface["addresses"].append({
+                          "type": "IPv6",
+                          "address": addr.address,
+                      })
+              if iface["addresses"]:
+                  interfaces.append(iface)
+          return interfaces
+
+      def get_filesystems():
+          """Gibt alle gemounteten Dateisysteme mit Groesseninfos zurueck."""
+          filesystems = []
+          for part in psutil.disk_partitions(all=False):
+              try:
+                  usage = psutil.disk_usage(part.mountpoint)
+                  filesystems.append({
+                      "device": part.device,
+                      "mountpoint": part.mountpoint,
+                      "fstype": part.fstype,
+                      "total_gb": round(usage.total / (1024**3), 2),
+                      "used_gb": round(usage.used / (1024**3), 2),
+                      "free_gb": round(usage.free / (1024**3), 2),
+                      "percent": usage.percent,
+                  })
+              except PermissionError:
+                  pass
+          return filesystems
+
+      def detect_hypervisor():
+          """Erkennt den Hypervisor-Typ."""
+          try:
+              result = subprocess.run(["systemd-detect-virt"], capture_output=True, text=True, timeout=2)
+              if result.returncode == 0 and result.stdout.strip() != "none":
+                  return result.stdout.strip()
+          except Exception:
+              pass
+          return "kvm"
+
+      def format_uptime(seconds):
+          """Formatiert Sekunden als lesbaren String (2d 3h 14m)."""
+          d = int(seconds // 86400)
+          h = int((seconds % 86400) // 3600)
+          m = int((seconds % 3600) // 60)
+          parts = []
+          if d: parts.append(f"{d}d")
+          if h: parts.append(f"{h}h")
+          parts.append(f"{m}m")
+          return " ".join(parts)
+
+      # HTML-Template fuer das Dashboard
+      HTML_TEMPLATE = """<!DOCTYPE html>
+      <html lang="de">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="refresh" content="30">
+        <title>VM Info - {{ data.host.hostname }}</title>
+        <style>
+          :root { --bg:#0a0e1a; --surface:#111827; --border:#1e293b; --accent:#00d4ff; --text:#e2e8f0; --muted:#64748b; --green:#10b981; --yellow:#f59e0b; --red:#ef4444; }
+          * { box-sizing:border-box; margin:0; padding:0; }
+          body { font-family:'Courier New',monospace; background:var(--bg); color:var(--text); min-height:100vh; padding:2rem; }
+          header { display:flex; align-items:baseline; gap:1rem; margin-bottom:2rem; border-bottom:1px solid var(--border); padding-bottom:1rem; }
+          header h1 { font-size:1.5rem; color:var(--accent); }
+          .ts { font-size:0.75rem; color:var(--muted); margin-left:auto; }
+          .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:1rem; }
+          .card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:1.25rem; }
+          .card-title { font-size:0.65rem; text-transform:uppercase; letter-spacing:.12em; color:var(--muted); margin-bottom:.75rem; }
+          .kv { display:flex; justify-content:space-between; padding:.3rem 0; border-bottom:1px solid var(--border); font-size:.82rem; }
+          .kv:last-child { border-bottom:none; }
+          .key { color:var(--muted); }
+          .val { color:var(--text); font-weight:500; text-align:right; max-width:60%; word-break:break-all; }
+          .bar-wrap { margin-top:.5rem; }
+          .bar-label { display:flex; justify-content:space-between; font-size:.75rem; color:var(--muted); margin-bottom:.25rem; }
+          .bar { height:6px; background:var(--border); border-radius:3px; overflow:hidden; }
+          .bar-fill { height:100%; border-radius:3px; }
+          .ok { background:var(--green); } .warn { background:var(--yellow); } .crit { background:var(--red); }
+          .fs-table { width:100%; font-size:.78rem; border-collapse:collapse; }
+          .fs-table th { color:var(--muted); text-align:left; padding:.25rem .5rem; font-weight:400; font-size:.68rem; }
+          .fs-table td { padding:.3rem .5rem; border-top:1px solid var(--border); }
+          .iface { margin-bottom:.6rem; }
+          .iface-name { font-size:.75rem; color:var(--accent); margin-bottom:.2rem; }
+          .iface-addr { font-size:.78rem; color:var(--muted); padding-left:.5rem; }
+          .footer { text-align:center; margin-top:1.5rem; font-size:.8rem; color:var(--muted); }
+          .footer a { color:var(--accent); text-decoration:none; }
+        </style>
+      </head>
+      <body>
+        <header>
+          <h1>&#9632; {{ data.host.hostname }}</h1>
+          <span class="ts">{{ data.collected_at[:19] }} UTC</span>
+        </header>
+        <div class="grid">
+          <div class="card">
+            <div class="card-title">System</div>
+            <div class="kv"><span class="key">Hostname</span><span class="val">{{ data.host.hostname }}</span></div>
+            <div class="kv"><span class="key">OS</span><span class="val">{{ data.host.os }}</span></div>
+            <div class="kv"><span class="key">Kernel</span><span class="val">{{ data.host.kernel }}</span></div>
+            <div class="kv"><span class="key">Architektur</span><span class="val">{{ data.host.arch }}</span></div>
+            <div class="kv"><span class="key">Hypervisor</span><span class="val">{{ data.host.hypervisor }}</span></div>
+            <div class="kv"><span class="key">Uptime</span><span class="val">{{ data.host.uptime }}</span></div>
+            <div class="kv"><span class="key">Prozesse</span><span class="val">{{ data.processes }}</span></div>
+          </div>
+          <div class="card">
+            <div class="card-title">CPU</div>
+            <div class="kv"><span class="key">Modell</span><span class="val">{{ data.cpu.model }}</span></div>
+            <div class="kv"><span class="key">Kerne (phys/log)</span><span class="val">{{ data.cpu.physical_cores }} / {{ data.cpu.logical_cores }}</span></div>
+            {% if data.cpu.frequency_mhz %}<div class="kv"><span class="key">Taktfrequenz</span><span class="val">{{ data.cpu.frequency_mhz }} MHz</span></div>{% endif %}
+            <div class="bar-wrap">
+              <div class="bar-label"><span>Auslastung</span><span>{{ data.cpu.usage_percent }}%</span></div>
+              <div class="bar"><div class="bar-fill {% if data.cpu.usage_percent < 60 %}ok{% elif data.cpu.usage_percent < 85 %}warn{% else %}crit{% endif %}" style="width:{{ data.cpu.usage_percent }}%"></div></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Arbeitsspeicher</div>
+            <div class="kv"><span class="key">Gesamt</span><span class="val">{{ data.memory.total_gb }} GB</span></div>
+            <div class="kv"><span class="key">Belegt</span><span class="val">{{ data.memory.used_gb }} GB</span></div>
+            <div class="kv"><span class="key">Verfuegbar</span><span class="val">{{ data.memory.available_gb }} GB</span></div>
+            <div class="bar-wrap">
+              <div class="bar-label"><span>RAM-Auslastung</span><span>{{ data.memory.percent }}%</span></div>
+              <div class="bar"><div class="bar-fill {% if data.memory.percent < 60 %}ok{% elif data.memory.percent < 85 %}warn{% else %}crit{% endif %}" style="width:{{ data.memory.percent }}%"></div></div>
+            </div>
+            <div style="margin-top:.75rem">
+            <div class="kv"><span class="key">Swap gesamt</span><span class="val">{{ data.swap.total_gb }} GB</span></div>
+            <div class="kv"><span class="key">Swap belegt</span><span class="val">{{ data.swap.used_gb }} GB</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Dateisysteme</div>
+            <table class="fs-table">
+              <thead><tr><th>Device</th><th>Mount</th><th>FS</th><th>Gesamt</th><th>%</th></tr></thead>
+              <tbody>
+              {% for fs in data.filesystems %}
+              <tr>
+                <td>{{ fs.device.split('/')[-1] }}</td>
+                <td>{{ fs.mountpoint }}</td>
+                <td style="color:var(--accent)">{{ fs.fstype }}</td>
+                <td>{{ fs.total_gb }}G</td>
+                <td style="color:{% if fs.percent < 70 %}var(--green){% elif fs.percent < 90 %}var(--yellow){% else %}var(--red){% endif %}">{{ fs.percent }}%</td>
+              </tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <div class="card-title">Netzwerk</div>
+            {% for iface in data.network %}
+            <div class="iface">
+              <div class="iface-name">{{ iface.name }}</div>
+              {% for addr in iface.addresses %}
+              <div class="iface-addr">{{ addr.type }}: {{ addr.address }}{% if addr.netmask %} / {{ addr.netmask }}{% endif %}</div>
+              {% endfor %}
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="footer">
+          <a href="/api">JSON API</a> &nbsp;|&nbsp; <a href="/health">Health</a> &nbsp;|&nbsp; Auto-Refresh alle 30s
+        </div>
+      </body>
+      </html>"""
+
+      @app.route("/")
+      def index():
+          """HTML-Dashboard mit allen VM-Informationen."""
+          data = get_system_info()
+          return render_template_string(HTML_TEMPLATE, data=data)
+
+      @app.route("/api")
+      def api():
+          """JSON-API: maschinenlesbare Systemdaten."""
+          data = get_system_info()
+          response = jsonify(data)
+          response.headers["Access-Control-Allow-Origin"] = "*"
+          return response
+
+      @app.route("/health")
+      def health():
+          """Health-Check: gibt 200 OK zurueck wenn Service laeuft."""
+          return jsonify({"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()})
+
+      if __name__ == "__main__":
+          # Nur auf localhost - Nginx ist der Reverse-Proxy nach aussen
+          app.run(host="127.0.0.1", port=5000, debug=False)
+
+  # --------------------------------------------------------------------------
+  # Systemd Service: startet die Flask-App automatisch
+  # --------------------------------------------------------------------------
+  - path: /etc/systemd/system/vminfo.service
+    content: |
+      [Unit]
+      Description=VM Info Flask Service
+      After=network.target
+
+      [Service]
+      Type=simple
+      User=vminfo
+      WorkingDirectory=/opt/vminfo
+      ExecStart=/usr/bin/python3 /opt/vminfo/app.py
+      Restart=always
+      RestartSec=5
+      StandardOutput=journal
+      StandardError=journal
+      NoNewPrivileges=true
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # --------------------------------------------------------------------------
+  # Nginx: Reverse-Proxy vor der Flask-App
+  # --------------------------------------------------------------------------
+  - path: /etc/nginx/sites-available/vminfo
+    content: |
+      server {
+          listen 80;
+          listen [::]:80;
+          server_name _;
+
+          # Security-Header
+          add_header X-Frame-Options "SAMEORIGIN";
+          add_header X-Content-Type-Options "nosniff";
+
+          # Flask-App als Upstream (alle Requests weiterleiten)
+          location / {
+              proxy_pass         http://127.0.0.1:5000;
+              proxy_set_header   Host $host;
+              proxy_set_header   X-Real-IP $remote_addr;
+              proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+              proxy_read_timeout 30s;
+          }
+
+          # Health-Check ohne Logging
+          location /health {
+              proxy_pass   http://127.0.0.1:5000/health;
+              access_log   off;
+          }
+      }
+
+runcmd:
+  # Verzeichnis und Berechtigungen setzen
+  - mkdir -p /var/log/vminfo
+  - chown -R vminfo:vminfo /opt/vminfo
+
+  # Nginx konfigurieren: Default-Site deaktivieren, vminfo aktivieren
+  - rm -f /etc/nginx/sites-enabled/default
+  - ln -sf /etc/nginx/sites-available/vminfo /etc/nginx/sites-enabled/vminfo
+  - nginx -t
+
+  # Services aktivieren und starten
+  - systemctl daemon-reload
+  - systemctl enable vminfo
+  - systemctl start vminfo
+  - systemctl enable nginx
+  - systemctl restart nginx
+
+  # HTTPS mit Let's Encrypt (nur wenn Domain konfiguriert)
+  - |
+    if [ -n "${domain}" ] && [ "${domain}" != "" ]; then
+      certbot --nginx --non-interactive --agree-tos \
+        --email "${admin_email}" -d "${domain}" --redirect
+    fi
+
+final_message: |
+  VM Info Service erfolgreich eingerichtet!
+  Flask: systemctl status vminfo
+  Nginx: systemctl status nginx
+  Logs:  journalctl -u vminfo -f

@@ -1,0 +1,11 @@
+# Terraform State – enthält sensible Daten!
+*.tfstate
+*.tfstate.backup
+
+# Terraform temporäre Dateien
+.terraform/
+.terraform.lock.hcl
+
+# Lokale Variablen-Overrides
+*.tfvars
+*.auto.tfvars

@@ -1,0 +1,74 @@
+services:
+  # ==========================================
+  # NETDATA: System Monitoring & HTML Dashboard
+  # ==========================================
+  netdata:
+    image: 'netdata/netdata:stable'
+    container_name: netdata
+    # Uses the host's PID namespace and network to accurately monitor the underlying Exoscale VM
+    pid: host
+    network_mode: host
+    restart: always
+    # Required Linux capabilities to read low-level system metrics
+    cap_add:
+      - SYS_PTRACE
+      - SYS_ADMIN
+    # Disables AppArmor confinement so Netdata can access all host system resources
+    security_opt:
+      - 'apparmor:unconfined'
+    # Tells Netdata where to find the host's etc directory for OS detection and Docker socket for container monitoring
+    environment:
+    - DOCKER_HOST=unix:///var/run/docker.sock
+    - HOST_ETC=/host/etc
+    volumes:
+      # Persistence for Netdata configurations and metrics database
+      - 'netdataconfig:/etc/netdata'
+      - 'netdatalib:/var/lib/netdata'
+      # Read-only access to host system files for hardware/OS metrics gathering
+      - '/proc:/host/proc:ro'
+      - '/sys:/host/sys:ro'
+      - '/etc/os-release:/host/etc/os-release:ro'
+      # Access to Docker socket to monitor container statistics
+      - '/var/run/docker.sock:/var/run/docker.sock:ro'
+     
+  # ==========================================
+  # SWAGGER UI: JSON API Documentation
+  # ==========================================
+  swagger-ui:
+    image: swaggerapi/swagger-ui
+    container_name: swagger-ui
+    restart: always
+    # Runs on the host network so Caddy can cleanly proxy to it without Docker Bridge firewall issues
+    network_mode: host
+    volumes:
+      # Mount our custom API spec
+      - '/opt/monitoring/openapi.yml:/openapi/openapi.yml:ro'
+    environment:
+      # Tell Swagger to load it
+      - SWAGGER_JSON=/openapi/openapi.yml
+      
+  # ==========================================
+  # CADDY: Reverse Proxy & HTTPS Gateway
+  # ==========================================
+  caddy:
+    image: 'caddy:2'
+    container_name: caddy
+    restart: always
+    # Binds directly to the host's port 80 and 443 to handle incoming web traffic
+    network_mode: host
+    volumes:
+      # Mount the configuration file provisioned by cloud-init (Read-only)
+      - '/etc/caddy/Caddyfile:/etc/caddy/Caddyfile:ro'
+      # Persistence for Let's Encrypt SSL certificates (CRITICAL to avoid API rate limits)
+      - 'caddy_data:/data'
+      - 'caddy_config:/config'
+      
+# ==========================================
+# DOCKER VOLUMES
+# ==========================================
+# Defines local Docker volumes to ensure data survives container restarts and updates
+volumes:
+  netdataconfig: null
+  netdatalib: null
+  caddy_data: null
+  caddy_config: null

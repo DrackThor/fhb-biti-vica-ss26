@@ -1,0 +1,133 @@
+#cloud-config
+autoinstall_compat: true
+update_hostname: fhb-sysinfo-vm
+
+# 1. Pakete aktualisieren und Nginx (+ Certbot für HTTPS) installieren
+package_update: true
+package_upgrade: true
+packages:
+  - nginx
+  - jq
+  - curl
+# - certbot       # Für HTTPS-Zusatzpunkte einkommentieren
+# - python3-certbot-nginx
+
+# 2. Skript erstellen, das die technischen Details ausliest
+write_files:
+  - path: /usr/local/bin/generate_sysinfo.sh
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/bin/bash
+      
+      # Verzeichnis für Nginx Webroot
+      WEBROOT="/var/www/html"
+      mkdir -p $WEBROOT
+
+      while true; do
+        # Technische Details sammeln
+        IP=$(curl -s https://ifconfig.me)
+        KERNEL=$(uname -r)
+        HYPERVISOR=$(systemd-detect-virt)
+        MEMORY_TOTAL=$(free -h | awk '/^Mem:/ {print $2}')
+        MEMORY_USED=$(free -h | awk '/^Mem:/ {print $3}')
+        STORAGE_TOTAL=$(df -h / | awk 'NR==2 {print $2}')
+        STORAGE_USED=$(df -h / | awk 'NR==2 {print $3}')
+        FILESYSTEMS=$(df -T | awk 'NR>1 {print $1 " (" $2 ")"}' | paste -sd ", " -)
+
+        # --- JSON API generieren ---
+        cat <<EOF > $WEBROOT/api.json
+      {
+        "status": "online",
+        "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+        "vm_details": {
+          "public_ip": "$IP",
+          "kernel_type": "$KERNEL",
+          "hypervisor": "$HYPERVISOR",
+          "memory": { "total": "$MEMORY_TOTAL", "used": "$MEMORY_USED" },
+          "storage": { "total": "$STORAGE_TOTAL", "used": "$STORAGE_USED" },
+          "filesystems": "$FILESYSTEMS"
+        }
+      }
+      EOF
+
+        # --- HTML Website generieren (schickes UI mit Tailwind CSS) ---
+        cat <<EOF > $WEBROOT/index.html
+      <!DOCTYPE html>
+      <html lang="de">
+      <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>VM System Info</title>
+          <script src="https://cdn.tailwindcss.com"></script>
+      </head>
+      <body class="bg-gray-900 text-gray-100 flex items-center justify-center min-h-screen">
+          <div class="bg-gray-800 p-8 rounded-lg shadow-xl w-full max-w-2xl border border-gray-700">
+              <h1 class="text-3xl font-bold text-blue-400 mb-6 flex items-center gap-2">
+                  <span>🖥️</span> Exoscale VM Dashboard
+              </h1>
+              <p class="text-sm text-gray-400 mb-4">Zuletzt aktualisiert: $(date +"%Y-%m-%d %H:%M:%S")</p>
+              
+              <div class="grid grid-cols-2 gap-4">
+                  <div class="bg-gray-750 p-4 rounded border border-gray-700">
+                      <span class="text-xs text-gray-400 block uppercase font-semibold">Öffentliche IP</span>
+                      <span class="text-lg font-mono text-green-400">$IP</span>
+                  </div>
+                  <div class="bg-gray-750 p-4 rounded border border-gray-700">
+                      <span class="text-xs text-gray-400 block uppercase font-semibold">Kernel</span>
+                      <span class="text-lg font-mono">$KERNEL</span>
+                  </div>
+                  <div class="bg-gray-750 p-4 rounded border border-gray-700">
+                      <span class="text-xs text-gray-400 block uppercase font-semibold">Hypervisor</span>
+                      <span class="text-lg font-mono">$HYPERVISOR</span>
+                  </div>
+                  <div class="bg-gray-750 p-4 rounded border border-gray-700">
+                      <span class="text-xs text-gray-400 block uppercase font-semibold">Arbeitsspeicher</span>
+                      <span class="text-lg font-mono">$MEMORY_USED / $MEMORY_TOTAL</span>
+                  </div>
+                  <div class="bg-gray-750 p-4 rounded border border-gray-700 col-span-2">
+                      <span class="text-xs text-gray-400 block uppercase font-semibold">Storage (/)</span>
+                      <span class="text-lg font-mono">$STORAGE_USED / $STORAGE_TOTAL</span>
+                  </div>
+                  <div class="bg-gray-750 p-4 rounded border border-gray-700 col-span-2">
+                      <span class="text-xs text-gray-400 block uppercase font-semibold">Filesysteme</span>
+                      <span class="text-xs font-mono break-all text-gray-300">$FILESYSTEMS</span>
+                  </div>
+              </div>
+              
+              <div class="mt-6 pt-4 border-t border-gray-700 flex justify-between text-sm">
+                  <a href="/" class="text-blue-400 hover:underline">📄 Website (HTML)</a>
+                  <a href="/api.json" class="text-blue-400 hover:underline font-mono">🌐 API (/api.json)</a>
+              </div>
+          </div>
+      </body>
+      </html>
+      EOF
+
+        sleep 10
+      done
+
+  # 3. Systemd Service Definition, damit das Skript im Hintergrund läuft
+  - path: /etc/systemd/system/sysinfo-generator.service
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Generates HTML and JSON System Info for Nginx
+      After=network.target
+
+      [Service]
+      Type=simple
+      ExecStart=/usr/local/bin/generate_sysinfo.sh
+      Restart=always
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - systemctl daemon-reload
+  - systemctl enable sysinfo-generator.service
+  - systemctl start sysinfo-generator.service
+  - systemctl restart nginx
+  # Für HTTPS-Zusatzpunkte (Certbot automatisieren):
+  # - certbot --nginx -d sysinfo.deine-domain.com --non-interactive --agree-tos -m deine-email@fh.at

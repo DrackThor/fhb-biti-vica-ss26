@@ -1,0 +1,45 @@
+name: "Destroy Infrastruktur (Abgabe 2)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Zum Loeschen "destroy" eingeben'
+        required: true
+        default: ""
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    env:
+      TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+      TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+      TF_VAR_second_level_domain: ${{ vars.SECOND_LEVEL_DOMAIN || 'ilic' }}
+      TF_WORKING_DIR: ./Ilic_Stefan/Abgabe_2_260607/terraform
+      DEPLOY_WORKFLOW: ilic_deploy.yml
+
+    steps:
+      - name: Bestaetigung pruefen
+        if: ${{ github.event.inputs.confirm != 'destroy' }}
+        run: |
+          echo "Abbruch: nicht 'destroy' eingegeben." >&2
+          exit 1
+
+      - uses: actions/checkout@v4
+      - uses: opentofu/setup-opentofu@v1
+
+      # State aus dem letzten Deploy-Run holen.
+      # (dawidd6/action-download-artifact kann Artefakte aus ANDEREN Workflow-Runs laden.)
+      - name: Terraform-State herunterladen
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: ${{ env.DEPLOY_WORKFLOW }}
+          name: tofu-state
+          path: ${{ env.TF_WORKING_DIR }}/
+          search_artifacts: true
+
+      - name: Init & Destroy
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          tofu init
+          tofu destroy -auto-approve

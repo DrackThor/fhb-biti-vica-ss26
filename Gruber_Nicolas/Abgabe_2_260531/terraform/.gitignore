@@ -1,0 +1,26 @@
+# Terraform State-Dateien (enthalten sensible Daten)
+*.tfstate
+*.tfstate.backup
+*.tfstate.*
+
+# Provider-Plugins und Cache
+.terraform/
+.terraform.lock.hcl
+
+# Lokale Variablen-Dateien (koennen Secrets enthalten)
+terraform.tfvars
+*.auto.tfvars
+
+# Crash-Logs
+crash.log
+crash.*.log
+
+# Override-Dateien
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# CLI Konfiguration
+.terraformrc
+terraform.rc

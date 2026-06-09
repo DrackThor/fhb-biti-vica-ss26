@@ -1,0 +1,108 @@
+# GitHub Actions Workflow: Infrastruktur deployen
+# Erstellt die Exoscale VM mit Terraform/OpenTofu
+# Trigger: Manuell oder bei Aenderungen an Terraform/CloudInit Dateien
+
+name: "Deploy VM"
+
+on:
+  # Manueller Start ueber GitHub UI
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Auszufuehrende Aktion'
+        required: true
+        default: 'apply'
+        type: choice
+        options:
+          - plan
+          - apply
+
+  # Automatisch bei relevanten Datei-Aenderungen
+  push:
+    paths:
+      - 'Gruber_Nicolas/Abgabe_2_260531/terraform/**'
+      - 'Gruber_Nicolas/Abgabe_2_260531/cloudinit/**'
+      - 'Gruber_Nicolas/Abgabe_2_260531/.github/workflows/deploy.yml'
+
+# Verhindert parallele Ausfuehrung
+concurrency:
+  group: gruber-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: "Terraform ${{ github.event.inputs.action || 'apply' }}"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # Arbeitsverzeichnis auf Terraform-Ordner setzen
+        working-directory: Gruber_Nicolas/Abgabe_2_260531/terraform
+
+    steps:
+      # 1. Repository Code auschecken
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      # 2. Terraform CLI installieren
+      - name: Terraform Setup
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+          terraform_wrapper: false
+
+      # 3. Provider-Plugins herunterladen
+      - name: Terraform Init
+        run: terraform init
+
+      # 4. Konfiguration auf Formatierung pruefen
+      - name: Format Check
+        run: terraform fmt -check
+
+      # 5. Ausfuehrungsplan erstellen
+      - name: Terraform Plan
+        run: terraform plan -input=false
+        env:
+          TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+          TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
+          TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TF_VAR_cloudflare_zone_id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          TF_VAR_letsencrypt_email: ${{ secrets.LETSENCRYPT_EMAIL }}
+
+      # 6. Infrastruktur erstellen (nur bei apply oder push)
+      - name: Terraform Apply
+        if: github.event.inputs.action == 'apply' || github.event_name == 'push'
+        run: terraform apply -auto-approve -input=false
+        env:
+          TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+          TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
+          TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TF_VAR_cloudflare_zone_id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          TF_VAR_letsencrypt_email: ${{ secrets.LETSENCRYPT_EMAIL }}
+
+      # 7. Ergebnis-URLs anzeigen
+      - name: Deployment Ergebnis
+        if: github.event.inputs.action == 'apply' || github.event_name == 'push'
+        run: terraform output
+        env:
+          TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+          TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
+          TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TF_VAR_cloudflare_zone_id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          TF_VAR_letsencrypt_email: ${{ secrets.LETSENCRYPT_EMAIL }}
+
+      # 8. Terraform State sichern (fuer Destroy-Workflow)
+      - name: State speichern
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-state
+          path: |
+            Gruber_Nicolas/Abgabe_2_260531/terraform/*.tfstate
+            Gruber_Nicolas/Abgabe_2_260531/terraform/.terraform.lock.hcl
+          retention-days: 30

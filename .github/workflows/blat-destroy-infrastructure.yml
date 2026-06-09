@@ -1,0 +1,44 @@
+# Name des GitHub Actions Workflows
+name: Destroy Infrastructure
+
+# Workflow kann manuell gestartet werden
+on:
+  workflow_dispatch:
+
+jobs:
+  destroy:
+
+    # Verwendung eines Ubuntu GitHub Runners
+    runs-on: ubuntu-latest
+
+    env:
+      TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+      TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      
+      # Pfad zur Abgabe
+      TF_WORKING_DIR: ./Blazovich_Tobias/Abgabe_2_280526/terraform
+
+      # Pfad für State-Datei
+      TF_STATE_PATH: ./Blazovich_Tobias/Abgabe_2_280526/terraform/terraform.tfstate
+
+    steps:
+
+      # Repository Dateien herunterladen
+      - uses: actions/checkout@v4
+
+      # OpenTofu auf dem Runner installieren
+      - uses: opentofu/setup-opentofu@v1
+
+      # OpenTofu initialisieren und Provider laden
+      - run: cd ${{ env.TF_WORKING_DIR }} && tofu init
+
+      # Lädt den beim Create-Workflow gespeicherten, damit OpenTofu weiß, welche Ressourcen gelöscht werden sollen
+      - name: Restore OpenTofu state cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.TF_STATE_PATH }}
+          key: opentofu-state
+
+      # Infrastruktur automatisch löschen
+      - run: cd ${{ env.TF_WORKING_DIR }}  && tofu destroy -auto-approve

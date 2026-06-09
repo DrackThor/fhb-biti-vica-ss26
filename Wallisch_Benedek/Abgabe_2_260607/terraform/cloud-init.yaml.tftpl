@@ -1,0 +1,42 @@
+#cloud-config
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - nginx
+
+write_files:
+  - path: /var/www/html/index.html
+    permissions: "0644"
+    content: |
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <title>Abgabe 2 Virtualisierung</title>
+      </head>
+      <body>
+          <h1>Abgabe 2 - Virtualisierungstechnologien</h1>
+          <p>VM Name: ${vm_name}</p>
+          <p>Bereitgestellt mit Terraform auf Exoscale.</p>
+          <p><a href="/api/v1/system.json">API aufrufen</a></p>
+      </body>
+      </html>
+
+  - path: /var/www/html/api/v1/system.json
+    permissions: "0644"
+    content: |
+      {
+        "student": "Benedek Wallisch",
+        "assignment": "Abgabe 2",
+        "vm_name": "${vm_name}",
+        "platform": "Exoscale",
+        "provisioning": "Terraform",
+        "status": "running"
+      }
+
+runcmd:
+  - mkdir -p /var/www/html/api/v1
+  - chown -R www-data:www-data /var/www/html
+  - systemctl enable nginx
+  - systemctl restart nginx

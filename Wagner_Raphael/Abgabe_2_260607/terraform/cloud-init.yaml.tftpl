@@ -1,0 +1,60 @@
+#cloud-config
+# Diese Datei enthaelt die gesamte Betriebssystem-Konfiguration der VM.
+# OpenTofu uebergibt sie als user_data an Exoscale, cloud-init fuehrt sie beim
+# ersten Boot automatisch aus.
+
+package_update: true
+package_upgrade: false
+
+packages:
+  # Python reicht fuer die kleine lokale App, weil sie nur Standardbibliothek nutzt.
+  - python3
+  # Caddy dient als Webserver und Reverse Proxy vor der App. Bei einem FQDN holt
+  # Caddy automatisch ein echtes Let's-Encrypt-Zertifikat.
+  - caddy
+
+write_files:
+  # Die App sammelt VM-Daten live und stellt HTML sowie JSON bereit.
+  - path: /opt/vminfo/app.py
+    owner: root:root
+    permissions: '0755'
+    content: |
+      ${indent(6, app_py)}
+
+  # systemd startet die App automatisch und startet sie bei Fehlern neu.
+  - path: /etc/systemd/system/vminfo.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Abgabe 2 VM Info App
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      ExecStart=/usr/bin/python3 /opt/vminfo/app.py
+      Restart=always
+      RestartSec=3
+      User=root
+      Environment=PYTHONUNBUFFERED=1
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # Caddy ist der einzige oeffentliche HTTP(S)-Dienst. Die Python-App bleibt lokal.
+  - path: /etc/caddy/Caddyfile
+    owner: root:root
+    permissions: '0644'
+    content: |
+      ${caddy_site_address} {
+          encode zstd gzip
+          reverse_proxy 127.0.0.1:8080
+      }
+
+runcmd:
+  # Dienstdefinitionen neu laden, App aktivieren und Caddy mit neuer Konfiguration starten.
+  - systemctl daemon-reload
+  - systemctl enable --now vminfo.service
+  - systemctl enable --now caddy.service
+  - systemctl reload caddy.service

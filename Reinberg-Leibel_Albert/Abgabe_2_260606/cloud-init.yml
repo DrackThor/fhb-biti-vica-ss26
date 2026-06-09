@@ -1,0 +1,217 @@
+#cloud-config
+
+# 1. System updaten
+package_update: true
+
+# 2. Pakete installieren
+packages:
+  - nginx
+  - curl
+
+# 3. Unser Bash-Skript zur Generierung des Dashboards erstellen
+write_files:
+  - path: /usr/local/bin/init-dashboard.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      
+      # --- SYSTEMDATEN SAMMELN ---
+      # Aktuelles Datum und Uhrzeit formatieren (z.B. 14.05.2024 15:30:00)
+      LAST_UPDATED=$(date "+%d.%m.%Y %H:%M:%S")
+      
+      # Öffentliche IP abfragen
+      PUBLIC_IP=$(curl -s --max-time 5 http://ifconfig.me || echo "Nicht ermittelbar")
+      KERNEL=$(uname -srm)
+      HYPERVISOR=$(systemd-detect-virt || echo "Unbekannt")
+      
+      # --- RAM BERECHNUNG ---
+      MEMORY_PERCENT=$(free | awk '/^Mem:/ {printf("%.0f"), $3/$2 * 100}')
+      MEMORY=$(free -h | awk '/^Mem:/ {print "Gesamt: " $2 " / Genutzt: " $3}')
+      
+      # --- SYSTEM-SPEICHER BERECHNUNG (Root /) ---
+      STORAGE_PERCENT=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
+      ROOT_STORAGE=$(df -h / | awk 'NR==2 {print "Größe: " $2 " / Frei: " $4}')
+      
+      # --- DATEISYSTEM TABELLE ---
+      FS_TABLE=$(df -hT -x tmpfs -x devtmpfs | tail -n +2 | awk '{print "<tr><td>"$1"</td><td>"$2"</td><td>"$3"</td><td>"$5"</td><td>"$7"</td></tr>"}')
+
+      # --- HTML-DATEI GENERIEREN ---
+      cat <<EOF > /var/www/html/index.html
+      <!DOCTYPE html>
+      <html lang="de">
+      <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <meta http-equiv="refresh" content="60">
+          <title>VM Dashboard</title>
+          <style>
+              :root {
+                  --bg-color: #121212;
+                  --text-color: #e0e0e0;
+                  --heading-color: #64b5f6;
+                  --table-bg: #1e1e1e;
+                  --table-border: #333333;
+                  --table-header-bg: #1976d2;
+                  --table-header-color: #ffffff;
+                  --hover-bg: #2a2a2a;
+                  --dial-track: #333333;
+                  --dial-fill: #64b5f6;
+              }
+
+              body { 
+                  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+                  margin: 40px auto; 
+                  max-width: 900px; 
+                  background-color: var(--bg-color); 
+                  color: var(--text-color); 
+              }
+              
+              h1 { 
+                  color: var(--heading-color); 
+                  border-bottom: 2px solid var(--table-header-bg); 
+                  padding-bottom: 10px; 
+              }
+              p.subtitle { 
+                  color: #888888; 
+                  font-style: italic; 
+                  margin-bottom: 30px; 
+              }
+              
+              h2 {
+                  color: var(--text-color);
+                  margin-top: 40px;
+                  font-size: 1.2em;
+              }
+
+              table { 
+                  width: 100%; 
+                  border-collapse: collapse; 
+                  margin-bottom: 30px; 
+                  background: var(--table-bg); 
+                  box-shadow: 0 4px 6px rgba(0,0,0,0.3); 
+                  border-radius: 8px;
+                  overflow: hidden; 
+              }
+              th, td { 
+                  padding: 12px 15px; 
+                  text-align: left; 
+                  border-bottom: 1px solid var(--table-border); 
+              }
+              th { 
+                  background-color: var(--table-header-bg); 
+                  color: var(--table-header-color); 
+                  text-transform: uppercase; 
+                  font-size: 0.9em; 
+                  letter-spacing: 0.05em;
+              }
+              tr:last-child td { border-bottom: none; }
+              tr:hover { background-color: var(--hover-bg); }
+
+              .dials-container {
+                  display: flex;
+                  gap: 30px;
+                  margin-bottom: 30px;
+                  justify-content: flex-start;
+              }
+              .dial-wrapper {
+                  background: var(--table-bg);
+                  padding: 20px;
+                  border-radius: 8px;
+                  box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+                  width: 230px; 
+                  text-align: center;
+              }
+              .dial-wrapper h3 {
+                  margin-top: 0;
+                  margin-bottom: 20px;
+                  font-size: 1em;
+                  color: var(--text-color);
+              }
+              .dial {
+                  width: 120px;
+                  height: 120px;
+                  border-radius: 50%;
+                  margin: 0 auto;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+              }
+              .dial-inner {
+                  width: 90px;
+                  height: 90px;
+                  border-radius: 50%;
+                  background-color: var(--table-bg);
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+              }
+              .dial-value {
+                  font-size: 1.6em;
+                  font-weight: bold;
+                  color: var(--heading-color);
+              }
+              .dial-label {
+                  font-size: 0.85em;
+                  color: #aaaaaa;
+                  margin-top: 20px;
+                  display: block;
+              }
+          </style>
+      </head>
+      <body>
+          <h1>Albert's Webserver Dashboard</h1>
+          <p class="subtitle">Zuletzt aktualisiert: $LAST_UPDATED</p>
+          
+          <h2>Ressourcen-Auslastung</h2>
+          <div class="dials-container">
+              
+              <div class="dial-wrapper">
+                  <h3>Arbeitsspeicher</h3>
+                  <div class="dial" style="background: conic-gradient(var(--dial-fill) 0% $MEMORY_PERCENT%, var(--dial-track) $MEMORY_PERCENT% 100%);">
+                      <div class="dial-inner">
+                          <span class="dial-value">$MEMORY_PERCENT%</span>
+                      </div>
+                  </div>
+                  <div class="dial-label">$MEMORY</div>
+              </div>
+
+              <div class="dial-wrapper">
+                  <h3>System-Speicher</h3>
+                  <div class="dial" style="background: conic-gradient(var(--dial-fill) 0% $STORAGE_PERCENT%, var(--dial-track) $STORAGE_PERCENT% 100%);">
+                      <div class="dial-inner">
+                          <span class="dial-value">$STORAGE_PERCENT%</span>
+                      </div>
+                  </div>
+                  <div class="dial-label">$ROOT_STORAGE</div>
+              </div>
+
+          </div>
+          
+          <h2>System Eckdaten</h2>
+          <table>
+              <tr><th>Eigenschaft</th><th>Wert</th></tr>
+              <tr><td>Öffentliche IP</td><td><strong>$PUBLIC_IP</strong></td></tr>
+              <tr><td>Kernel & Architektur</td><td>$KERNEL</td></tr>
+              <tr><td>Hypervisor</td><td>$HYPERVISOR</td></tr>
+          </table>
+          
+          <h2>Detailsansicht Filesysteme</h2>
+          <table>
+              <tr><th>Dateisystem</th><th>Typ</th><th>Gesamt</th><th>Verfügbar</th><th>Mountpoint</th></tr>
+              $FS_TABLE
+          </table>
+      </body>
+      </html>
+      EOF
+
+# 4. Befehle nach der Installation ausführen
+runcmd:
+  # Das Skript ausführen, um die index.html initial zu befüllen
+  - /usr/local/bin/init-dashboard.sh
+  # Nginx aktivieren und starten
+  - systemctl enable nginx
+  - systemctl start nginx
+  # Cronjob einrichten: Führt das Dashboard-Skript jede Minute (*) als root aus
+  - echo "* * * * * root /usr/local/bin/init-dashboard.sh" > /etc/cron.d/update-dashboard
+  # Rechte für die Cron-Datei richtig setzen (erforderlich)
+  - chmod 0644 /etc/cron.d/update-dashboard

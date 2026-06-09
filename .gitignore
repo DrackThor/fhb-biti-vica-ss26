@@ -1,0 +1,9 @@
+*.tfvars
+*.tfstate
+*.tfstate.lock.info
+.terraform/
+*.tfstate.backup
+.vs/
+.idea/
+.devenv/
+.direnv/

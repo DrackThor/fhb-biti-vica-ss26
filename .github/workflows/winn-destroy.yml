@@ -1,0 +1,26 @@
+name: Exoscale Destroy
+
+on:
+  workflow_dispatch: # Ermöglicht das manuelle Starten per Button
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+
+      - name: Terraform Init
+        run: terraform init
+        env:
+          EXOSCALE_KEY: ${{ secrets.EXOSCALE_KEY }}
+          EXOSCALE_SECRET: ${{ secrets.EXOSCALE_SECRET }}
+
+      # Da kein State vorhanden, Ressourcen "Import" notwendig 
+      # oder (einfacher) gezielt löschen:
+      - name: Terraform Destroy
+        run: |
+          terraform destroy -auto-approve -var="exoscale_key=${{ secrets.EXOSCALE_KEY }}" -var="exoscale_secret=${{ secrets.EXOSCALE_SECRET }}"

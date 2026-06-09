@@ -1,0 +1,30 @@
+name: "Abgabe2 - Infrastruktur LOESCHEN"
+
+# Dieser Workflow wird MANUELL gestartet (Tab "Actions" -> "Run workflow").
+on:
+  workflow_dispatch:
+
+env:
+  TF_VAR_exoscale_api_key:    ${{ secrets.EXOSCALE_API_KEY }}
+  TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+  AWS_ACCESS_KEY_ID:          ${{ secrets.EXOSCALE_API_KEY }}
+  AWS_SECRET_ACCESS_KEY:      ${{ secrets.EXOSCALE_API_SECRET }}
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Dirry_alexander/Abgabe_2_260604/terraform
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v4
+
+      - name: OpenTofu installieren
+        uses: opentofu/setup-opentofu@v1
+
+      - name: Initialisieren (verbindet sich mit dem gespeicherten State)
+        run: tofu init
+
+      - name: Infrastruktur loeschen
+        run: tofu destroy -auto-approve

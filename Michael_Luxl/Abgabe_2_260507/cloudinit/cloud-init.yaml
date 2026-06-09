@@ -1,0 +1,444 @@
+#cloud-config
+# CloudInit Konfiguration fuer die VM
+# Installiert Nginx, sammelt VM-Infos, optional Cloudflare DNS + SSL
+# ACHTUNG: Bash-Variablen werden mit $ escaped (Terraform templatefile)
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - nginx
+  - jq
+  - curl
+  - certbot
+  - python3-certbot-dns-cloudflare
+
+write_files:
+  # ============================================================
+  # Cloudflare & Domain Konfiguration (wird von Bash gelesen)
+  # ============================================================
+  - path: /opt/vm-info/domain.conf
+    permissions: '0600'
+    content: |
+      DOMAIN_NAME="${domain_name}"
+      CF_API_TOKEN="${cloudflare_api_token}"
+      CF_ZONE_ID="${cloudflare_zone_id}"
+      LE_EMAIL="${letsencrypt_email}"
+
+  # ============================================================
+  # Shell-Script: VM-Informationen sammeln
+  # ============================================================
+  - path: /opt/vm-info/collect-info.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Sammelt technische Informationen ueber die VM
+      # und erstellt HTML- und JSON-Dateien fuer den Webserver
+
+      HTML_DIR="/var/www/html"
+      API_DIR="/var/www/api"
+      mkdir -p "$HTML_DIR" "$API_DIR"
+
+      # --- Informationen sammeln ---
+      IP_ADDR=$(hostname -I | awk '{print $1}')
+      PUBLIC_IP=$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || echo "N/A")
+      HOSTNAME=$(hostname)
+      OS=$(lsb_release -d 2>/dev/null | cut -f2 || grep PRETTY_NAME /etc/os-release | cut -d'"' -f2)
+      KERNEL=$(uname -r)
+      ARCH=$(uname -m)
+
+      HYPERVISOR="Unbekannt"
+      if [ -f /sys/hypervisor/type ]; then
+        HYPERVISOR=$(cat /sys/hypervisor/type)
+      elif dmesg 2>/dev/null | grep -qi "hypervisor"; then
+        HYPERVISOR=$(dmesg 2>/dev/null | grep -i "hypervisor" | head -1 | sed 's/.*hypervisor: //')
+      elif grep -q "KVM" /sys/class/dmi/id/sys_vendor 2>/dev/null || grep -q "QEMU" /sys/class/dmi/id/sys_vendor 2>/dev/null; then
+        HYPERVISOR="KVM/QEMU"
+      elif grep -q "VMware" /sys/class/dmi/id/sys_vendor 2>/dev/null; then
+        HYPERVISOR="VMware"
+      elif grep -q "Xen" /sys/class/dmi/id/sys_vendor 2>/dev/null; then
+        HYPERVISOR="Xen"
+      else
+        HYPERVISOR="Cloud/Hypervisor"
+      fi
+
+      CPU_MODEL=$(grep "model name" /proc/cpuinfo | head -1 | cut -d':' -f2 | xargs)
+      CPU_CORES=$(nproc)
+      MEM_TOTAL=$(free -h | awk '/^Mem:/ {print $2}')
+      MEM_USED=$(free -h | awk '/^Mem:/ {print $3}')
+      MEM_FREE=$(free -h | awk '/^Mem:/ {print $4}')
+      MEM_AVAILABLE=$(free -h | awk '/^Mem:/ {print $7}')
+      SWAP_TOTAL=$(free -h | awk '/^Swap:/ {print $2}')
+      SWAP_USED=$(free -h | awk '/^Swap:/ {print $3}')
+      DISK_TOTAL=$(df -h / | awk 'NR==2 {print $2}')
+      DISK_USED=$(df -h / | awk 'NR==2 {print $3}')
+      DISK_FREE=$(df -h / | awk 'NR==2 {print $4}')
+      DISK_PERCENT=$(df -h / | awk 'NR==2 {print $5}')
+      FILESYSTEMS=$(lsblk -o NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE -b 2>/dev/null | head -20)
+      FILESYSTEMS_JSON=$(echo "$FILESYSTEMS" | jq -Rs .)
+      UPTIME=$(uptime -p 2>/dev/null || uptime | awk -F'up' '{print $2}' | awk -F',' '{print $1}')
+      LOAD_AVG=$(cat /proc/loadavg | awk '{print $1, $2, $3}')
+      PROCS=$(ps aux --no-heading | wc -l)
+
+      # Domain aus Konfiguration lesen
+      source /opt/vm-info/domain.conf
+      DOMAIN="$DOMAIN_NAME"
+      if [ -n "$DOMAIN" ]; then
+        DISPLAY_URL="https://$DOMAIN"
+      else
+        DISPLAY_URL="http://$PUBLIC_IP"
+      fi
+
+      TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S %Z')
+
+      # --- JSON API ---
+      cat > "$API_DIR/info.json" << JSONEOF
+      {
+        "timestamp": "$TIMESTAMP",
+        "hostname": "$HOSTNAME",
+        "os": "$OS",
+        "kernel": { "version": "$KERNEL", "architecture": "$ARCH" },
+        "hypervisor": "$HYPERVISOR",
+        "cpu": { "model": "$CPU_MODEL", "cores": $CPU_CORES },
+        "memory": {
+          "total": "$MEM_TOTAL", "used": "$MEM_USED",
+          "free": "$MEM_FREE", "available": "$MEM_AVAILABLE",
+          "swap_total": "$SWAP_TOTAL", "swap_used": "$SWAP_USED"
+        },
+        "disk": {
+          "total": "$DISK_TOTAL", "used": "$DISK_USED",
+          "free": "$DISK_FREE", "usage_percent": "$DISK_PERCENT"
+        },
+        "filesystems": $FILESYSTEMS_JSON,
+        "network": { "private_ip": "$IP_ADDR", "public_ip": "$PUBLIC_IP", "domain": "$DOMAIN" },
+        "urls": { "website": "$DISPLAY_URL", "api": "$DISPLAY_URL/api/info.json" },
+        "uptime": "$UPTIME",
+        "load_average": "$LOAD_AVG",
+        "processes": $PROCS
+      }
+      JSONEOF
+
+      # --- HTML Website ---
+      cat > "$HTML_DIR/index.html" << 'HTMLEOF'
+      <!DOCTYPE html>
+      <html lang="de">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="refresh" content="30">
+        <title>VM Information</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            color: #e0e0e0; min-height: 100vh; padding: 20px;
+          }
+          .container { max-width: 1200px; margin: 0 auto; }
+          header { text-align: center; padding: 30px 0; border-bottom: 2px solid #6c63ff; margin-bottom: 30px; }
+          header h1 { font-size: 2.5em; color: #6c63ff; text-shadow: 0 0 20px rgba(108,99,255,0.5); }
+          header .timestamp { color: #888; margin-top: 10px; font-size: 0.9em; }
+          .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; margin-bottom: 30px; }
+          .card {
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(108,99,255,0.3);
+            border-radius: 12px; padding: 20px; backdrop-filter: blur(10px);
+            transition: transform 0.2s, box-shadow 0.2s;
+          }
+          .card:hover { transform: translateY(-3px); box-shadow: 0 8px 25px rgba(108,99,255,0.2); }
+          .card h2 { color: #6c63ff; font-size: 1.3em; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid rgba(108,99,255,0.2); }
+          .card table { width: 100%; }
+          .card td { padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+          .card td:first-child { color: #aaa; width: 45%; }
+          .card td:last-child { color: #fff; font-weight: 500; }
+          .api-link { text-align: center; margin-top: 20px; }
+          .api-link a { color: #6c63ff; text-decoration: none; font-size: 1.1em; border: 1px solid #6c63ff; padding: 10px 25px; border-radius: 8px; transition: all 0.3s; }
+          .api-link a:hover { background: #6c63ff; color: #fff; }
+          footer { text-align: center; padding: 20px; color: #666; font-size: 0.85em; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <header>
+            <h1>&#128421; VM System Information</h1>
+            <div class="timestamp">Letzte Aktualisierung: <span id="ts"></span></div>
+            <div class="hostname">Hostname: <span id="hn"></span></div>
+          </header>
+          <div class="grid">
+            <div class="card">
+              <h2>&#128187; System</h2>
+              <table>
+                <tr><td>Hostname</td><td id="v-hn"></td></tr>
+                <tr><td>Betriebssystem</td><td id="v-os"></td></tr>
+                <tr><td>Kernel</td><td id="v-kernel"></td></tr>
+                <tr><td>Architektur</td><td id="v-arch"></td></tr>
+                <tr><td>Hypervisor</td><td id="v-hyper"></td></tr>
+                <tr><td>Uptime</td><td id="v-uptime"></td></tr>
+              </table>
+            </div>
+            <div class="card">
+              <h2>&#9881; CPU</h2>
+              <table>
+                <tr><td>Modell</td><td id="v-cpu"></td></tr>
+                <tr><td>Kerne</td><td id="v-cores"></td></tr>
+                <tr><td>Load Average</td><td id="v-load"></td></tr>
+                <tr><td>Prozesse</td><td id="v-procs"></td></tr>
+              </table>
+            </div>
+            <div class="card">
+              <h2>&#128190; Arbeitsspeicher</h2>
+              <table>
+                <tr><td>Total</td><td id="v-mem-t"></td></tr>
+                <tr><td>Belegt</td><td id="v-mem-u"></td></tr>
+                <tr><td>Frei</td><td id="v-mem-f"></td></tr>
+                <tr><td>Verfuegbar</td><td id="v-mem-a"></td></tr>
+                <tr><td>Swap Total</td><td id="v-swap-t"></td></tr>
+                <tr><td>Swap Belegt</td><td id="v-swap-u"></td></tr>
+              </table>
+            </div>
+            <div class="card">
+              <h2>&#128191; Storage</h2>
+              <table>
+                <tr><td>Total</td><td id="v-disk-t"></td></tr>
+                <tr><td>Belegt</td><td id="v-disk-u"></td></tr>
+                <tr><td>Frei</td><td id="v-disk-f"></td></tr>
+                <tr><td>Auslastung</td><td id="v-disk-p"></td></tr>
+              </table>
+            </div>
+            <div class="card">
+              <h2>&#127760; Netzwerk</h2>
+              <table>
+                <tr><td>Private IP</td><td id="v-nip"></td></tr>
+                <tr><td>Public IP</td><td id="v-pip"></td></tr>
+                <tr><td>Domain</td><td id="v-domain"></td></tr>
+              </table>
+            </div>
+          </div>
+          <div class="card" style="margin-bottom: 20px;">
+            <h2>&#128191; Filesysteme (lsblk)</h2>
+            <pre id="v-fs" style="color: #ccc; overflow-x: auto; font-size: 0.9em;"></pre>
+          </div>
+          <div class="api-link">
+            <a href="/api/info.json">&#128269; JSON API Endpoint</a>
+          </div>
+          <footer>Automatisch generiert durch CloudInit | Aktualisierung alle 30 Sekunden</footer>
+        </div>
+        <script>
+          fetch('/api/info.json').then(r=>r.json()).then(d=>{
+            document.getElementById('ts').textContent=d.timestamp;
+            document.getElementById('hn').textContent=d.hostname;
+            document.getElementById('v-hn').textContent=d.hostname;
+            document.getElementById('v-os').textContent=d.os;
+            document.getElementById('v-kernel').textContent=d.kernel.version;
+            document.getElementById('v-arch').textContent=d.kernel.architecture;
+            document.getElementById('v-hyper').textContent=d.hypervisor;
+            document.getElementById('v-uptime').textContent=d.uptime;
+            document.getElementById('v-cpu').textContent=d.cpu.model;
+            document.getElementById('v-cores').textContent=d.cpu.cores;
+            document.getElementById('v-load').textContent=d.load_average;
+            document.getElementById('v-procs').textContent=d.processes;
+            document.getElementById('v-mem-t').textContent=d.memory.total;
+            document.getElementById('v-mem-u').textContent=d.memory.used;
+            document.getElementById('v-mem-f').textContent=d.memory.free;
+            document.getElementById('v-mem-a').textContent=d.memory.available;
+            document.getElementById('v-swap-t').textContent=d.memory.swap_total;
+            document.getElementById('v-swap-u').textContent=d.memory.swap_used;
+            document.getElementById('v-disk-t').textContent=d.disk.total;
+            document.getElementById('v-disk-u').textContent=d.disk.used;
+            document.getElementById('v-disk-f').textContent=d.disk.free;
+            document.getElementById('v-disk-p').textContent=d.disk.usage_percent;
+            document.getElementById('v-nip').textContent=d.network.private_ip;
+            document.getElementById('v-pip').textContent=d.network.public_ip;
+            document.getElementById('v-domain').textContent=d.network.domain||'keine';
+            document.getElementById('v-fs').textContent=d.filesystems||'Keine Daten verfügbar.';
+          });
+        </script>
+      </body>
+      </html>
+      HTMLEOF
+
+  # ============================================================
+  # Nginx: HTTP Server (Standard, wird bei SSL durch Redirect ersetzt)
+  # ============================================================
+  - path: /etc/nginx/sites-available/vm-info
+    permissions: '0644'
+    content: |
+      server {
+          listen 80 default_server;
+          listen [::]:80 default_server;
+          server_name _;
+
+          root /var/www/html;
+          index index.html;
+
+          location / {
+              try_files \$uri \$uri/ =404;
+          }
+
+          location /api/ {
+              alias /var/www/api/;
+              default_type application/json;
+              add_header Access-Control-Allow-Origin *;
+          }
+      }
+
+  # ============================================================
+  # Setup-Script: Cloudflare DNS + certbot SSL + Nginx HTTPS
+  # ============================================================
+  - path: /opt/vm-info/setup-dns-ssl.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Erstellt Cloudflare DNS A-Record und holt SSL-Zertifikat via certbot
+      set -e
+
+      source /opt/vm-info/domain.conf
+
+      # Abbrechen wenn keine Domain konfiguriert
+      if [ -z "$DOMAIN_NAME" ] || [ -z "$CF_API_TOKEN" ] || [ -z "$CF_ZONE_ID" ]; then
+        echo "Keine Domain/Cloudflare-Konfiguration - DNS/SSL uebersprungen"
+        exit 0
+      fi
+
+      echo "=== Cloudflare DNS Setup fuer $DOMAIN_NAME ==="
+
+      # Oeffentliche IP ermitteln (mit Retry)
+      PUBLIC_IP=""
+      for i in 1 2 3 4 5; do
+        PUBLIC_IP=$(curl -s --max-time 10 https://api.ipify.org 2>/dev/null)
+        if [ -n "$PUBLIC_IP" ]; then break; fi
+        echo "Versuch $i: Warte auf oeffentliche IP..."
+        sleep 10
+      done
+
+      if [ -z "$PUBLIC_IP" ]; then
+        echo "Fehler: Konnte oeffentliche IP nicht ermitteln"
+        exit 1
+      fi
+      echo "Oeffentliche IP: $PUBLIC_IP"
+
+      # Pruefen ob DNS-Eintrag bereits existiert
+      EXISTING=$(curl -s -X GET \
+        "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records?name=$DOMAIN_NAME&type=A" \
+        -H "Authorization: Bearer $CF_API_TOKEN" \
+        -H "Content-Type: application/json")
+
+      EXISTING_COUNT=$(echo "$EXISTING" | jq -r '.result | length')
+
+      if [ "$EXISTING_COUNT" -gt 0 ]; then
+        RECORD_ID=$(echo "$EXISTING" | jq -r '.result[0].id')
+        echo "DNS A-Record existiert, aktualisiere auf $PUBLIC_IP..."
+        curl -s -X PATCH \
+          "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records/$RECORD_ID" \
+          -H "Authorization: Bearer $CF_API_TOKEN" \
+          -H "Content-Type: application/json" \
+          --data "{\"type\":\"A\",\"name\":\"$DOMAIN_NAME\",\"content\":\"$PUBLIC_IP\",\"ttl\":300,\"proxied\":false}" \
+          | jq -r '.success'
+      else
+        echo "Erstelle DNS A-Record: $DOMAIN_NAME -> $PUBLIC_IP"
+        curl -s -X POST \
+          "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records" \
+          -H "Authorization: Bearer $CF_API_TOKEN" \
+          -H "Content-Type: application/json" \
+          --data "{\"type\":\"A\",\"name\":\"$DOMAIN_NAME\",\"content\":\"$PUBLIC_IP\",\"ttl\":300,\"proxied\":false}" \
+          | jq -r '.success'
+      fi
+
+      # DNS Propagation abwarten
+      echo "Warte auf DNS Propagation (90s)..."
+      sleep 90
+
+      # Cloudflare Credentials fuer certbot
+      mkdir -p /etc/letsencrypt
+      cat > /etc/letsencrypt/cloudflare.ini << CREDSEOF
+      dns_cloudflare_api_token = $CF_API_TOKEN
+      CREDSEOF
+      chmod 600 /etc/letsencrypt/cloudflare.ini
+
+      # E-Mail-Flag
+      EMAIL_FLAG=""
+      if [ -n "$LE_EMAIL" ]; then
+        EMAIL_FLAG="--email $LE_EMAIL"
+      else
+        EMAIL_FLAG="--register-unsafely-without-email"
+      fi
+
+      # SSL-Zertifikat via certbot + Cloudflare DNS Challenge
+      echo "Starte certbot fuer $DOMAIN_NAME..."
+      certbot certonly \
+        --dns-cloudflare \
+        --dns-cloudflare-credentials /etc/letsencrypt/cloudflare.ini \
+        --dns-cloudflare-propagation-seconds 30 \
+        -d "$DOMAIN_NAME" \
+        $EMAIL_FLAG \
+        --non-interactive \
+        --agree-tos \
+        --no-eff-email
+
+      if [ $? -ne 0 ]; then
+        echo "Fehler beim Erstellen des SSL-Zertifikats"
+        exit 1
+      fi
+
+      echo "SSL-Zertifikat erfolgreich erstellt!"
+
+      # Nginx HTTPS-Konfiguration erstellen
+      cat > /etc/nginx/sites-available/vm-info << NGINXEOF
+      # HTTP -> HTTPS Redirect
+      server {
+          listen 80 default_server;
+          listen [::]:80 default_server;
+          server_name $DOMAIN_NAME;
+          return 301 https://\$host\$request_uri;
+      }
+
+      # HTTPS Server
+      server {
+          listen 443 ssl http2 default_server;
+          listen [::]:443 ssl http2 default_server;
+          server_name $DOMAIN_NAME;
+
+          ssl_certificate /etc/letsencrypt/live/$DOMAIN_NAME/fullchain.pem;
+          ssl_certificate_key /etc/letsencrypt/live/$DOMAIN_NAME/privkey.pem;
+          ssl_protocols TLSv1.2 TLSv1.3;
+          ssl_ciphers HIGH:!aNULL:!MD5;
+          ssl_prefer_server_ciphers on;
+
+          root /var/www/html;
+          index index.html;
+
+          location / {
+              try_files \$uri \$uri/ =404;
+          }
+
+          location /api/ {
+              alias /var/www/api/;
+              default_type application/json;
+              add_header Access-Control-Allow-Origin *;
+          }
+      }
+      NGINXEOF
+
+      nginx -t && systemctl reload nginx
+
+      # Certbot Renewal Hook
+      mkdir -p /etc/letsencrypt/renewal-hooks/deploy
+      cat > /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh << 'HOOKEOF'
+      #!/bin/bash
+      systemctl reload nginx
+      HOOKEOF
+      chmod +x /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+
+      echo "=== DNS + SSL Setup abgeschlossen ==="
+      echo "Website: https://$DOMAIN_NAME"
+      echo "API:     https://$DOMAIN_NAME/api/info.json"
+
+runcmd:
+  - rm -f /etc/nginx/sites-enabled/default
+  - ln -sf /etc/nginx/sites-available/vm-info /etc/nginx/sites-enabled/vm-info
+  - /opt/vm-info/collect-info.sh
+  - systemctl restart nginx
+  - systemctl enable nginx
+  - echo "* * * * * root /opt/vm-info/collect-info.sh" > /etc/cron.d/vm-info
+  - chmod 644 /etc/cron.d/vm-info
+  # DNS + SSL asynchron (blockiert Boot nicht)
+  - nohup /opt/vm-info/setup-dns-ssl.sh > /var/log/dns-ssl-setup.log 2>&1 &

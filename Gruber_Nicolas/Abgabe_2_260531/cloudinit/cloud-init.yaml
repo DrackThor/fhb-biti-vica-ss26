@@ -1,0 +1,257 @@
+#cloud-config
+# Cloud-Init: Nginx Webserver mit VM-Systeminformationen (HTML + JSON API)
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - nginx
+  - jq
+  - curl
+  - lsb-release
+  - certbot
+  - python3-certbot-dns-cloudflare
+
+write_files:
+  # Domain/SSL Konfiguration (Werte von Terraform eingesetzt)
+  - path: /opt/sysinfo/config.env
+    permissions: '0600'
+    content: |
+      DOMAIN="${domain_name}"
+      CF_TOKEN="${cloudflare_api_token}"
+      CF_ZONE="${cloudflare_zone_id}"
+      LE_MAIL="${letsencrypt_email}"
+
+  # Hauptscript: Sammelt VM-Infos, generiert HTML + JSON
+  - path: /opt/sysinfo/generate.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      WEB="/var/www/html"
+      API="/var/www/html/api"
+      mkdir -p "$WEB" "$API"
+      HOSTNAME_VAL=$(hostname)
+      PRIVATE_IP=$(hostname -I | awk '{print $1}')
+      PUBLIC_IP=$(curl -s --connect-timeout 5 https://ifconfig.me 2>/dev/null || echo "N/A")
+      OS_INFO=$(lsb_release -ds 2>/dev/null || grep PRETTY_NAME /etc/os-release | cut -d'"' -f2)
+      KERNEL_VERSION=$(uname -r)
+      KERNEL_ARCH=$(uname -m)
+      UPTIME_INFO=$(uptime -p 2>/dev/null || uptime)
+      BOOT_TIME=$(who -b 2>/dev/null | awk '{print $3, $4}')
+      TIMESTAMP=$(date '+%d.%m.%Y %H:%M:%S %Z')
+      HYPERVISOR="N/A"
+      if [ -f /sys/hypervisor/type ]; then
+        HYPERVISOR=$(cat /sys/hypervisor/type)
+      elif command -v systemd-detect-virt &>/dev/null; then
+        V=$(systemd-detect-virt 2>/dev/null)
+        [ "$V" != "none" ] && [ -n "$V" ] && HYPERVISOR="$V"
+      fi
+      CPU_MODEL=$(grep "model name" /proc/cpuinfo | head -1 | cut -d':' -f2 | xargs)
+      CPU_CORES=$(nproc)
+      LOAD=$(cat /proc/loadavg | awk '{print $1" "$2" "$3}')
+      PROCS=$(ps aux --no-heading 2>/dev/null | wc -l)
+      MEM_TOTAL=$(free -h | awk '/^Mem:/{print $2}')
+      MEM_USED=$(free -h | awk '/^Mem:/{print $3}')
+      MEM_FREE=$(free -h | awk '/^Mem:/{print $4}')
+      MEM_AVAIL=$(free -h | awk '/^Mem:/{print $7}')
+      SWAP_T=$(free -h | awk '/^Swap:/{print $2}')
+      SWAP_U=$(free -h | awk '/^Swap:/{print $3}')
+      DISK_T=$(df -h / | awk 'NR==2{print $2}')
+      DISK_U=$(df -h / | awk 'NR==2{print $3}')
+      DISK_A=$(df -h / | awk 'NR==2{print $4}')
+      DISK_P=$(df -h / | awk 'NR==2{print $5}')
+      BLKDEV=$(lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT 2>/dev/null | head -20)
+      BLKDEV_J=$(echo "$BLKDEV" | jq -Rs .)
+      IFACES=$(ip -brief addr show 2>/dev/null | head -10)
+      IFACES_J=$(echo "$IFACES" | jq -Rs .)
+      DNS=$(grep nameserver /etc/resolv.conf 2>/dev/null | awk '{print $2}' | tr '\n' ',' | sed 's/,$//')
+      GW=$(ip route | grep default | awk '{print $3}' | head -1)
+      SVCS=$(systemctl list-units --type=service --state=running --no-pager 2>/dev/null | grep -c ".service")
+      source /opt/sysinfo/config.env
+      [ -n "$DOMAIN" ] && BASE="https://$DOMAIN" || BASE="http://$PUBLIC_IP"
+      cat > "$API/info.json" << JSONEOF
+      {
+        "meta":{"generated_at":"$TIMESTAMP","endpoints":{"html":"$BASE/","json":"$BASE/api/info.json"}},
+        "system":{"hostname":"$HOSTNAME_VAL","os":"$OS_INFO","kernel":"$KERNEL_VERSION","arch":"$KERNEL_ARCH","hypervisor":"$HYPERVISOR","uptime":"$UPTIME_INFO","boot_time":"$BOOT_TIME","services":$SVCS},
+        "cpu":{"model":"$CPU_MODEL","cores":$CPU_CORES,"load":"$LOAD","processes":$PROCS},
+        "memory":{"total":"$MEM_TOTAL","used":"$MEM_USED","free":"$MEM_FREE","available":"$MEM_AVAIL","swap_total":"$SWAP_T","swap_used":"$SWAP_U"},
+        "storage":{"total":"$DISK_T","used":"$DISK_U","available":"$DISK_A","usage":"$DISK_P","block_devices":$BLKDEV_J},
+        "network":{"private_ip":"$PRIVATE_IP","public_ip":"$PUBLIC_IP","gateway":"$GW","dns":"$DNS","interfaces":$IFACES_J,"domain":"$DOMAIN"}
+      }
+      JSONEOF
+      cat > "$WEB/index.html" << 'HTMLEOF'
+      <!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><meta http-equiv="refresh" content="30"><title>VM Dashboard</title>
+      <style>
+      *{margin:0;padding:0;box-sizing:border-box}
+      body{font-family:'Courier New',monospace;background:#0f172a;color:#e2e8f0;min-height:100vh;padding:1.5rem}
+      .w{max-width:1300px;margin:0 auto}
+      h1{color:#14b8a6;font-size:1.8rem;text-align:center;padding:1.5rem 0;border-bottom:1px solid rgba(20,184,166,.3)}
+      .m{text-align:center;color:#94a3b8;font-size:.8rem;margin:.5rem 0 1.5rem}
+      .g{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:1.2rem;margin-bottom:1.5rem}
+      .p{background:rgba(15,23,42,.8);border:1px solid rgba(20,184,166,.25);border-radius:8px;padding:1.2rem}
+      .p:hover{border-color:#14b8a6}
+      .p h2{color:#14b8a6;font-size:.9rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:.8rem;padding-bottom:.6rem;border-bottom:1px solid rgba(20,184,166,.2)}
+      table{width:100%}td{padding:.3rem 0;font-size:.82rem}
+      td:first-child{color:#94a3b8;width:40%}td:last-child{color:#fff}
+      .fw{grid-column:1/-1}
+      pre{background:rgba(0,0,0,.3);padding:.8rem;border-radius:4px;overflow-x:auto;font-size:.75rem;color:#94a3b8}
+      .btn{display:block;text-align:center;margin:1.5rem 0}
+      .btn a{color:#14b8a6;border:1px solid #0d9488;padding:.6rem 1.5rem;border-radius:6px;text-decoration:none;font-size:.85rem}
+      .btn a:hover{background:#0d9488;color:#fff}
+      footer{text-align:center;color:#64748b;font-size:.7rem;padding:1rem 0;border-top:1px solid rgba(20,184,166,.2)}
+      </style></head><body><div class="w">
+      <h1>VM System Dashboard</h1>
+      <div class="m">Aktualisiert: <span id="ts">-</span> | <span id="hn">-</span></div>
+      <div class="g">
+      <div class="p"><h2>System</h2><table>
+      <tr><td>Hostname</td><td id="s1"></td></tr>
+      <tr><td>OS</td><td id="s2"></td></tr>
+      <tr><td>Kernel</td><td id="s3"></td></tr>
+      <tr><td>Arch</td><td id="s4"></td></tr>
+      <tr><td>Hypervisor</td><td id="s5"></td></tr>
+      <tr><td>Uptime</td><td id="s6"></td></tr>
+      <tr><td>Boot</td><td id="s7"></td></tr>
+      <tr><td>Services</td><td id="s8"></td></tr>
+      </table></div>
+      <div class="p"><h2>CPU</h2><table>
+      <tr><td>Modell</td><td id="c1"></td></tr>
+      <tr><td>Kerne</td><td id="c2"></td></tr>
+      <tr><td>Load</td><td id="c3"></td></tr>
+      <tr><td>Prozesse</td><td id="c4"></td></tr>
+      </table></div>
+      <div class="p"><h2>Memory</h2><table>
+      <tr><td>Total</td><td id="m1"></td></tr>
+      <tr><td>Used</td><td id="m2"></td></tr>
+      <tr><td>Free</td><td id="m3"></td></tr>
+      <tr><td>Available</td><td id="m4"></td></tr>
+      <tr><td>Swap Total</td><td id="m5"></td></tr>
+      <tr><td>Swap Used</td><td id="m6"></td></tr>
+      </table></div>
+      <div class="p"><h2>Storage</h2><table>
+      <tr><td>Total</td><td id="d1"></td></tr>
+      <tr><td>Used</td><td id="d2"></td></tr>
+      <tr><td>Available</td><td id="d3"></td></tr>
+      <tr><td>Usage</td><td id="d4"></td></tr>
+      </table></div>
+      <div class="p"><h2>Network</h2><table>
+      <tr><td>Private IP</td><td id="n1"></td></tr>
+      <tr><td>Public IP</td><td id="n2"></td></tr>
+      <tr><td>Gateway</td><td id="n3"></td></tr>
+      <tr><td>DNS</td><td id="n4"></td></tr>
+      <tr><td>Domain</td><td id="n5"></td></tr>
+      </table></div>
+      <div class="p fw"><h2>Block Devices</h2><pre id="bd">...</pre></div>
+      <div class="p fw"><h2>Interfaces</h2><pre id="if">...</pre></div>
+      </div>
+      <div class="btn"><a href="/api/info.json">JSON API</a></div>
+      <footer>Gruber Nicolas - FH Burgenland | Auto-Refresh 30s</footer>
+      </div><script>
+      fetch('/api/info.json').then(r=>r.json()).then(d=>{
+      document.getElementById('ts').textContent=d.meta.generated_at;
+      document.getElementById('hn').textContent=d.system.hostname;
+      document.getElementById('s1').textContent=d.system.hostname;
+      document.getElementById('s2').textContent=d.system.os;
+      document.getElementById('s3').textContent=d.system.kernel;
+      document.getElementById('s4').textContent=d.system.arch;
+      document.getElementById('s5').textContent=d.system.hypervisor;
+      document.getElementById('s6').textContent=d.system.uptime;
+      document.getElementById('s7').textContent=d.system.boot_time;
+      document.getElementById('s8').textContent=d.system.services;
+      document.getElementById('c1').textContent=d.cpu.model;
+      document.getElementById('c2').textContent=d.cpu.cores;
+      document.getElementById('c3').textContent=d.cpu.load;
+      document.getElementById('c4').textContent=d.cpu.processes;
+      document.getElementById('m1').textContent=d.memory.total;
+      document.getElementById('m2').textContent=d.memory.used;
+      document.getElementById('m3').textContent=d.memory.free;
+      document.getElementById('m4').textContent=d.memory.available;
+      document.getElementById('m5').textContent=d.memory.swap_total;
+      document.getElementById('m6').textContent=d.memory.swap_used;
+      document.getElementById('d1').textContent=d.storage.total;
+      document.getElementById('d2').textContent=d.storage.used;
+      document.getElementById('d3').textContent=d.storage.available;
+      document.getElementById('d4').textContent=d.storage.usage;
+      document.getElementById('n1').textContent=d.network.private_ip;
+      document.getElementById('n2').textContent=d.network.public_ip;
+      document.getElementById('n3').textContent=d.network.gateway;
+      document.getElementById('n4').textContent=d.network.dns;
+      document.getElementById('n5').textContent=d.network.domain||'(keine)';
+      document.getElementById('bd').textContent=d.storage.block_devices;
+      document.getElementById('if').textContent=d.network.interfaces;
+      }).catch(e=>console.error(e));
+      </script></body></html>
+      HTMLEOF
+
+  # Nginx HTTP Konfiguration
+  - path: /etc/nginx/sites-available/sysinfo
+    permissions: '0644'
+    content: |
+      server {
+          listen 80 default_server;
+          listen [::]:80 default_server;
+          server_name _;
+          root /var/www/html;
+          index index.html;
+          location / { try_files \$uri \$uri/ =404; }
+          location /api/ {
+              alias /var/www/html/api/;
+              default_type application/json;
+              add_header Access-Control-Allow-Origin *;
+          }
+      }
+
+  # SSL Setup Script (optional, nur bei Domain-Konfiguration)
+  - path: /opt/sysinfo/setup-ssl.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -e
+      source /opt/sysinfo/config.env
+      [ -z "$DOMAIN" ] || [ -z "$CF_TOKEN" ] || [ -z "$CF_ZONE" ] && exit 0
+      PUBLIC_IP=""
+      for i in 1 2 3 4 5; do
+        PUBLIC_IP=$(curl -s --connect-timeout 10 https://ifconfig.me 2>/dev/null)
+        [ -n "$PUBLIC_IP" ] && break
+        sleep 15
+      done
+      [ -z "$PUBLIC_IP" ] && exit 1
+      EXISTING=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records?name=$DOMAIN&type=A" -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json")
+      CNT=$(echo "$EXISTING" | jq -r '.result | length')
+      if [ "$CNT" -gt 0 ]; then
+        RID=$(echo "$EXISTING" | jq -r '.result[0].id')
+        curl -s -X PATCH "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records/$RID" -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" --data "{\"type\":\"A\",\"name\":\"$DOMAIN\",\"content\":\"$PUBLIC_IP\",\"ttl\":300,\"proxied\":false}"
+      else
+        curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records" -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" --data "{\"type\":\"A\",\"name\":\"$DOMAIN\",\"content\":\"$PUBLIC_IP\",\"ttl\":300,\"proxied\":false}"
+      fi
+      sleep 90
+      mkdir -p /etc/letsencrypt
+      echo "dns_cloudflare_api_token = $CF_TOKEN" > /etc/letsencrypt/cf.ini
+      chmod 600 /etc/letsencrypt/cf.ini
+      [ -n "$LE_MAIL" ] && MP="--email $LE_MAIL" || MP="--register-unsafely-without-email"
+      certbot certonly --dns-cloudflare --dns-cloudflare-credentials /etc/letsencrypt/cf.ini --dns-cloudflare-propagation-seconds 30 -d "$DOMAIN" $MP --non-interactive --agree-tos --no-eff-email || exit 1
+      cat > /etc/nginx/sites-available/sysinfo << NGINXEOF
+      server { listen 80 default_server; listen [::]:80 default_server; server_name $DOMAIN; return 301 https://\$host\$request_uri; }
+      server {
+          listen 443 ssl http2 default_server;
+          listen [::]:443 ssl http2 default_server;
+          server_name $DOMAIN;
+          ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
+          ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+          ssl_protocols TLSv1.2 TLSv1.3;
+          root /var/www/html;
+          index index.html;
+          location / { try_files \$uri \$uri/ =404; }
+          location /api/ { alias /var/www/html/api/; default_type application/json; add_header Access-Control-Allow-Origin *; }
+      }
+      NGINXEOF
+      nginx -t && systemctl reload nginx
+
+runcmd:
+  - rm -f /etc/nginx/sites-enabled/default
+  - ln -sf /etc/nginx/sites-available/sysinfo /etc/nginx/sites-enabled/sysinfo
+  - /opt/sysinfo/generate.sh
+  - systemctl restart nginx
+  - systemctl enable nginx
+  - echo "* * * * * root /opt/sysinfo/generate.sh" > /etc/cron.d/sysinfo-update
+  - chmod 644 /etc/cron.d/sysinfo-update
+  - nohup /opt/sysinfo/setup-ssl.sh > /var/log/ssl-setup.log 2>&1 &

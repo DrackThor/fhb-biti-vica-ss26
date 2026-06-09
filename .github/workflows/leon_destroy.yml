@@ -1,0 +1,38 @@
+name: "Destroy Leon Infrastructure"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+
+    env:
+      # Exoscale Zugangsdaten aus GitHub Secrets.
+      TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+      TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # Pfade zur Abgabe und zum Deploy-Workflow.
+      TF_WORKING_DIR: ./Mandl_Leon/Abgabe_2_260602
+      TF_WORKFLOW_NAME: leon_deploy.yml
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: opentofu/setup-opentofu@v1
+
+      # State vom letzten Deploy-Workflow herunterladen.
+      - name: Download Terraform State
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: ${{ env.TF_WORKFLOW_NAME }}
+          name: leon-tofu-state
+          path: ${{ env.TF_WORKING_DIR }}/
+          search_artifacts: true
+
+      # Infrastruktur löschen.
+      - name: Destroy
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          tofu init
+          tofu destroy -auto-approve

@@ -1,0 +1,41 @@
+name: "Abgabe2 - Infrastruktur ERSTELLEN"
+
+# Dieser Workflow wird MANUELL gestartet (Tab "Actions" -> "Run workflow").
+on:
+  workflow_dispatch:
+
+# Zugangsdaten als Umgebungsvariablen fuer alle Schritte bereitstellen.
+# Die Werte liegen als "Secrets" sicher im Repository.
+env:
+  # Fuer den Exoscale-Provider (Erstellen der VM etc.):
+  TF_VAR_exoscale_api_key:    ${{ secrets.EXOSCALE_API_KEY }}
+  TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+  # Fuer den State-Backend (SOS-Bucket) - dieselben Zugangsdaten:
+  AWS_ACCESS_KEY_ID:          ${{ secrets.EXOSCALE_API_KEY }}
+  AWS_SECRET_ACCESS_KEY:      ${{ secrets.EXOSCALE_API_SECRET }}
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        # In diesem Ordner liegen die Terraform-Dateien
+        working-directory: Dirry_alexander/Abgabe_2_260604/terraform
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v4
+
+      - name: OpenTofu installieren
+        uses: opentofu/setup-opentofu@v1
+
+      - name: Initialisieren (Provider laden + State-Backend verbinden)
+        run: tofu init
+
+      - name: Konfiguration pruefen
+        run: tofu validate
+
+      - name: Infrastruktur erstellen
+        run: tofu apply -auto-approve
+
+      - name: URLs ausgeben (Website + API)
+        run: tofu output

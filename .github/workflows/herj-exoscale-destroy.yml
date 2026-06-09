@@ -1,0 +1,32 @@
+name: Exoscale Destroy
+
+"on":
+  workflow_dispatch:
+  push:
+    branches:
+      - patch-1
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+
+    env:
+      TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+      TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: latest
+
+      - name: Tofu init
+        working-directory: ./Heritage_Juliette/Abgabe_2_Exoscale_VM/terraform
+        run: tofu init
+
+      - name: Tofu destroy
+        working-directory: ./Heritage_Juliette/Abgabe_2_Exoscale_VM/terraform
+        run: tofu destroy -auto-approve

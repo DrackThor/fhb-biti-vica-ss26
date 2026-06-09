@@ -48,7 +48,7 @@ write_files:
       </html>
       EOF
 
-      cat > /var/www/html/api/index.json <<EOF
+      cat > /var/www/html/api/index.html <<EOF
       {
         "hostname": "$HOSTNAME",
         "public_ip": "$PUBLIC_IP",

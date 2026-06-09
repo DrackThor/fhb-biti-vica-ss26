@@ -1,0 +1,125 @@
+#cloud-config
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - nginx
+  - jq
+
+write_files:
+
+  - path: /usr/local/bin/generate-vm-info.sh
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/bin/bash
+
+      IP=$(hostname -I | awk '{print $1}')
+      HOSTNAME=$(hostname)
+      KERNEL=$(uname -r)
+      ARCH=$(uname -m)
+      MEMORY=$(free -h | awk '/Mem:/ {print $2}')
+      CPU=$(nproc)
+
+      cat > /var/www/html/vm.json <<EOF
+      {
+        "hostname": "$HOSTNAME",
+        "ip_address": "$IP",
+        "kernel": "$KERNEL",
+        "architecture": "$ARCH",
+        "memory": "$MEMORY",
+        "cpu_cores": "$CPU"
+      }
+      EOF
+
+      cat > /var/www/html/index.html <<EOF
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>VM Technical Details</title>
+        <style>
+          body {
+            font-family: Arial;
+            margin: 40px;
+            background: #f4f6f8;
+          }
+
+          .card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            max-width: 700px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+          }
+
+          h1 {
+            color: #1d3557;
+          }
+
+          table {
+            width: 100%;
+            border-collapse: collapse;
+          }
+
+          td {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+          }
+
+          .label {
+            font-weight: bold;
+          }
+        </style>
+      </head>
+      <body>
+
+      <div class="card">
+        <h1>Exoscale VM Technical Details</h1>
+
+        <table>
+          <tr>
+            <td class="label">Hostname</td>
+            <td>$HOSTNAME</td>
+          </tr>
+
+          <tr>
+            <td class="label">IP Address</td>
+            <td>$IP</td>
+          </tr>
+
+          <tr>
+            <td class="label">Kernel</td>
+            <td>$KERNEL</td>
+          </tr>
+
+          <tr>
+            <td class="label">Architecture</td>
+            <td>$ARCH</td>
+          </tr>
+
+          <tr>
+            <td class="label">Memory</td>
+            <td>$MEMORY</td>
+          </tr>
+
+          <tr>
+            <td class="label">CPU Cores</td>
+            <td>$CPU</td>
+          </tr>
+        </table>
+
+        <p>
+          JSON API:
+          <a href="/vm.json">/vm.json</a>
+        </p>
+      </div>
+
+      </body>
+      </html>
+      EOF
+
+runcmd:
+  - systemctl enable nginx
+  - systemctl restart nginx
+  - /usr/local/bin/generate-vm-info.sh

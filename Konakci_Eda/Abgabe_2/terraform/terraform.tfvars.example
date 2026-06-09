@@ -1,0 +1,19 @@
+# Diese Datei dient als lokale Vorlage und darf keine echten Secrets enthalten.
+# In GitHub Actions werden Secrets über TF_VAR_* Environment Variables übergeben.
+
+exoscale_api_key    = "EXO..."
+exoscale_api_secret = "..."
+
+zone          = "at-vie-1"
+instance_name = "vica-vm-details"
+instance_type = "standard.small"
+disk_size     = 10
+
+# Optional für SSH Debugging:
+# ssh_public_key   = "ssh-ed25519 AAAA..."
+# ssh_allowed_cidr = "203.0.113.10/32"
+
+# Optional für Bonus DNS + HTTPS:
+# dns_domain        = "example.com"
+# dns_record_name   = "vm-details"
+# letsencrypt_email = "you@example.com"

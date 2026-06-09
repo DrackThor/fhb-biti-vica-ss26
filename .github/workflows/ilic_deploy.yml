@@ -1,0 +1,67 @@
+name: "Deploy Infrastruktur (Abgabe 2)"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      # Aus den GitHub-Secrets.
+      TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+      TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+      # Optional via GitHub-Variables ueberschreibbar (mit Fallback).
+      TF_VAR_second_level_domain: ${{ vars.SECOND_LEVEL_DOMAIN || 'ilic' }}
+      TF_VAR_acme_staging: ${{ vars.ACME_STAGING || 'false' }}
+      # Pfade zentral.
+      TF_WORKING_DIR: ./Ilic_Stefan/Abgabe_2_260607/terraform
+      TF_STATE_PATH: ./Ilic_Stefan/Abgabe_2_260607/terraform/terraform.tfstate
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: opentofu/setup-opentofu@v1
+
+      # Ephemeres SSH-Keypair fuer optionalen Debug-Zugriff.
+      - name: SSH-Keypair erzeugen
+        run: |
+          ssh-keygen -t ed25519 -N "" -f ./deploy_key
+          echo "TF_VAR_ssh_public_key=$(cat ./deploy_key.pub)" >> "$GITHUB_ENV"
+
+      - name: Init & Validate
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          tofu init
+          tofu validate
+
+      - name: Apply
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: tofu apply -auto-approve
+
+      # State sichern, damit der Destroy-Workflow ihn spaeter laden kann.
+      - name: Terraform-State als Artefakt hochladen
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tofu-state
+          path: ${{ env.TF_STATE_PATH }}
+          retention-days: 5
+
+      - name: SSH-Key als Artefakt hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssh-private-key
+          path: ./deploy_key
+          retention-days: 5
+
+      - name: URLs ausgeben
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          {
+            echo "## Deployment erfolgreich :rocket:"
+            echo ""
+            echo "- **Website (HTML):** $(tofu output -raw website_url)"
+            echo "- **API (JSON):** $(tofu output -raw api_url)"
+            echo "- **Public IP:** $(tofu output -raw public_ip)"
+            echo ""
+            echo "> Erstes Let's-Encrypt-Zertifikat + DNS-Propagierung koennen 1-3 Min dauern."
+          } >> "$GITHUB_STEP_SUMMARY"

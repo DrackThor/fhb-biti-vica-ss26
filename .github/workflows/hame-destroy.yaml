@@ -1,0 +1,30 @@
+name: Destroy Infrastructure
+
+on:
+  workflow_dispatch:
+
+jobs:
+  destroy:
+
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: Abgabe_2_ErikHammermueller_260602/infra
+
+    steps:
+
+      - uses: actions/checkout@v4
+
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@v1
+
+      - name: Tofu Init
+        run: tofu init
+
+      - name: Tofu Destroy
+        run: |
+          tofu destroy -auto-approve \
+          -var="exoscale_api_key=${{ secrets.EXOSCALE_API_KEY }}" \
+          -var="exoscale_api_secret=${{ secrets.EXOSCALE_API_SECRET }}" \
+          -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}"
