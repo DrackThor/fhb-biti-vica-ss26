@@ -1,0 +1,71 @@
+name: Abgabe 2 - Deploy Bora Mutlu
+
+# Manuell startbar ueber den Actions-Tab. Kein automatischer Trigger,
+# damit nicht bei jedem Push Infrastruktur angelegt wird.
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    # Alle tofu-Kommandos laufen im Unterordner der Abgabe.
+    defaults:
+      run:
+        working-directory: Mutlu_Bora/Abgabe_2_260609
+
+    env:
+      TF_IN_AUTOMATION: "true"
+
+      # Exoscale-Login (Provider liest diese beiden Variablen automatisch).
+      EXOSCALE_API_KEY: ${{ secrets.EXOSCALE_API_KEY }}
+      EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # Zugang zum SOS-Bucket, in dem der Remote-State liegt.
+      AWS_ACCESS_KEY_ID: ${{ secrets.SOS_ACCESS_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SOS_SECRET_KEY }}
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      TF_STATE_ZONE: "at-vie-1"
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: OpenTofu installieren
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.8.1
+
+      # Backend-Config zur Laufzeit bauen, damit der Bucket-Name nicht im Repo steht.
+      - name: Backend fuer Remote-State vorbereiten
+        run: |
+          cat > backend.hcl <<EOF
+          bucket = "${TF_STATE_BUCKET}"
+          key    = "Mutlu_Bora/Abgabe_2_260609/terraform.tfstate"
+          region = "${TF_STATE_ZONE}"
+
+          endpoints = {
+            s3 = "https://sos-${TF_STATE_ZONE}.exo.io"
+          }
+
+          # SOS ist S3-kompatibel, aber kein echtes AWS - daher die AWS-Checks ausschalten.
+          use_path_style              = true
+          skip_credentials_validation = true
+          skip_region_validation      = true
+          skip_requesting_account_id  = true
+          skip_metadata_api_check     = true
+          skip_s3_checksum            = true
+          EOF
+
+      - name: OpenTofu init
+        run: tofu init -backend-config=backend.hcl -input=false
+
+      - name: OpenTofu validate
+        run: tofu validate
+
+      - name: Infrastruktur erstellen
+        run: tofu apply -auto-approve -input=false
+
+      # Gibt am Ende die IP und die beiden URLs aus.
+      - name: Ergebnis anzeigen
+        run: tofu output

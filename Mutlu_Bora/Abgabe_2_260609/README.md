@@ -1,5 +1,4 @@
 # Abgabe 2 - Exoscale VM mit Info-Endpunkt
-# Die README-Dokumentation wurde mit KI-Unterstützung formuliert und strukturiert.
 
 ## Ziel
 
@@ -36,9 +35,9 @@ Alles wird automatisiert aufgebaut (OpenTofu + GitHub Actions) und das OS komple
 ```text
 .github/workflows/deploy-bora-mutlu.yml    # Erstellen
 .github/workflows/destroy-bora-mutlu.yml   # Loeschen
-Abgabe_2_Bora_Mutlu/main.tf                # OpenTofu-Konfiguration
-Abgabe_2_Bora_Mutlu/cloud-init.yaml        # OS-Konfiguration
-Abgabe_2_Bora_Mutlu/README.md              # diese Datei
+Mutlu_Bora/Abgabe_2_260609/main.tf                # OpenTofu-Konfiguration
+Mutlu_Bora/Abgabe_2_260609/cloud-init.yaml        # OS-Konfiguration
+Mutlu_Bora/Abgabe_2_260609/README.md              # diese Datei
 ```
 
 Die Workflows liegen im Repo-Root unter `.github/workflows`, weil GitHub sie sonst nicht findet.

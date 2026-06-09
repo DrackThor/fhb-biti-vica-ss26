@@ -1,0 +1,60 @@
+name: Abgabe 2 - Destroy Bora Mutlu
+
+# Eigener Workflow zum Aufraeumen. Liest denselben State wie der Deploy.
+on:
+  workflow_dispatch:
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: Mutlu_Bora/Abgabe_2_260609
+
+    env:
+      TF_IN_AUTOMATION: "true"
+
+      EXOSCALE_API_KEY: ${{ secrets.EXOSCALE_API_KEY }}
+      EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # Muss exakt derselbe Bucket/Key wie beim Deploy sein, sonst findet
+      # destroy den State nicht und loescht nichts.
+      AWS_ACCESS_KEY_ID: ${{ secrets.SOS_ACCESS_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.SOS_SECRET_KEY }}
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      TF_STATE_ZONE: "at-vie-1"
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: OpenTofu installieren
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.8.1
+
+      - name: Backend fuer Remote-State vorbereiten
+        run: |
+          cat > backend.hcl <<EOF
+          bucket = "${TF_STATE_BUCKET}"
+          key    = "Mutlu_Bora/Abgabe_2_260609/terraform.tfstate"
+          region = "${TF_STATE_ZONE}"
+
+          endpoints = {
+            s3 = "https://sos-${TF_STATE_ZONE}.exo.io"
+          }
+
+          use_path_style              = true
+          skip_credentials_validation = true
+          skip_region_validation      = true
+          skip_requesting_account_id  = true
+          skip_metadata_api_check     = true
+          skip_s3_checksum            = true
+          EOF
+
+      - name: OpenTofu init
+        run: tofu init -backend-config=backend.hcl -input=false
+
+      - name: Infrastruktur loeschen
+        run: tofu destroy -auto-approve -input=false

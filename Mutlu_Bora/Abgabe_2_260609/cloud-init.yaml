@@ -1,0 +1,142 @@
+#cloud-config
+
+package_update: true
+
+packages:
+  - nginx
+  - python3
+  - curl
+
+write_files:
+  # Sammelt die Systemdaten und schreibt daraus index.html + api.json.
+  - path: /usr/local/bin/generate-info.py
+    owner: root:root
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env python3
+
+      import html
+      import json
+      import os
+      import platform
+      import subprocess
+      from datetime import datetime, timezone
+
+      # Kleiner Helfer: Shell-Kommando ausfuehren, bei Fehler "unbekannt" zurueckgeben.
+      def sh(command):
+          try:
+              return subprocess.check_output(
+                  command,
+                  shell=True,
+                  text=True,
+                  stderr=subprocess.DEVNULL,
+                  timeout=5
+              ).strip()
+          except Exception:
+              return "unbekannt"
+
+      # Exoscale-Metadaten ueber den Link-Local-Endpunkt abfragen.
+      def meta(name):
+          return sh(f"curl -fsS --max-time 2 http://metadata.exoscale.com/latest/meta-data/{name}")
+
+      def os_name():
+          try:
+              with open("/etc/os-release", "r", encoding="utf-8") as f:
+                  for line in f:
+                      if line.startswith("PRETTY_NAME="):
+                          return line.split("=", 1)[1].strip().replace('"', '')
+          except Exception:
+              pass
+          return "unbekannt"
+
+      data = {
+          "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+          "hostname": sh("hostname"),
+          "operating_system": os_name(),
+          "kernel_type": sh("uname -s"),
+          "kernel_release": sh("uname -r"),
+          "architecture": platform.machine(),
+          "virtualization": sh("systemd-detect-virt"),
+          "hypervisor": sh("lscpu | awk -F: '/Hypervisor vendor/ {print $2}' | xargs"),
+          "cpu_model": sh("lscpu | awk -F: '/Model name/ {print $2}' | xargs"),
+          "cpu_cores": sh("nproc"),
+          "memory": sh("free -h"),
+          "public_ip": meta("public-ipv4"),
+          "private_ip": meta("local-ipv4"),
+          "exoscale_instance_id": meta("instance-id"),
+          "exoscale_zone": meta("availability-zone"),
+          "uptime": sh("uptime -p"),
+          "root_filesystem": sh("df -hT /"),
+          "all_filesystems": sh("df -hT"),
+          "block_devices": sh("lsblk"),
+      }
+
+      os.makedirs("/var/www/html", exist_ok=True)
+
+      # JSON fuer den /api-Endpunkt.
+      with open("/var/www/html/api.json", "w", encoding="utf-8") as f:
+          json.dump(data, f, indent=2, ensure_ascii=False)
+
+      # Dieselben Daten als HTML-Tabelle. html.escape, damit Werte nichts kaputt machen.
+      rows = ""
+      for key, value in data.items():
+          rows += f"<tr><th>{html.escape(key)}</th><td><pre>{html.escape(str(value))}</pre></td></tr>"
+
+      page = f"""<!doctype html>
+      <html lang="de">
+      <head>
+        <meta charset="utf-8">
+        <title>Exoscale VM Info</title>
+        <style>
+          body {{ font-family: Arial, sans-serif; margin: 40px; background: #f4f4f4; }}
+          main {{ max-width: 1000px; margin: auto; background: white; padding: 25px; border-radius: 10px; }}
+          table {{ width: 100%; border-collapse: collapse; }}
+          th, td {{ text-align: left; vertical-align: top; border-bottom: 1px solid #ddd; padding: 10px; }}
+          th {{ width: 230px; background: #fafafa; }}
+          pre {{ margin: 0; white-space: pre-wrap; }}
+          a {{ color: #0645ad; }}
+        </style>
+      </head>
+      <body>
+        <main>
+          <h1>Exoscale VM Info</h1>
+          <p>Automatisch erzeugt via OpenTofu, GitHub Actions und Cloud-Init.</p>
+          <p>JSON API: <a href="/api">/api</a></p>
+          <table>{rows}</table>
+        </main>
+      </body>
+      </html>"""
+
+      with open("/var/www/html/index.html", "w", encoding="utf-8") as f:
+          f.write(page)
+
+  # nginx: / liefert HTML, /api liefert JSON.
+  # defer, weil das nginx-Paket erst installiert sein muss, bevor die Datei sinnvoll ist.
+  - path: /etc/nginx/sites-available/default
+    owner: root:root
+    permissions: "0644"
+    defer: true
+    content: |
+      server {
+          listen 80 default_server;
+          listen [::]:80 default_server;
+
+          root /var/www/html;
+          index index.html;
+
+          location = / {
+              try_files /index.html =404;
+          }
+
+          location = /api {
+              default_type application/json;
+              try_files /api.json =404;
+          }
+      }
+
+# Reihenfolge: erst Seite generieren, dann nginx-Config testen und neu starten.
+runcmd:
+  - python3 /usr/local/bin/generate-info.py
+  - nginx -t
+  - systemctl enable nginx
+  - systemctl restart nginx
