@@ -1,0 +1,216 @@
+#cloud-config
+
+# Hostname der VM setzen (kommt aus Terraform via templatefile())
+hostname: ${vm_name}
+
+# Pakete aktualisieren und installieren
+package_update: true
+package_upgrade: true
+packages:
+  - nginx        # Webserver
+  - jq           # JSON formatting tool
+  - curl         # HTTP requests
+  - net-tools    # Netzwerk-Tools (ifconfig, etc.)
+
+write_files:
+  - path: /usr/local/bin/collect-vm-info.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+
+      # Einzelne Informationen sammeln
+      HOSTNAME=$(hostname)
+      KERNEL=$(uname -r)
+      ARCH=$(uname -m)
+      OS=$(lsb_release -d | cut -f2)
+      UPTIME=$(uptime -p)
+      CPU_MODEL=$(grep "model name" /proc/cpuinfo | head -1 | cut -d: -f2 | xargs)
+      CPU_CORES=$(nproc)
+      TOTAL_RAM=$(free -m | awk '/Mem:/ {print $2}')
+      USED_RAM=$(free -m | awk '/Mem:/ {print $3}')
+      FREE_RAM=$(free -m | awk '/Mem:/ {print $4}')
+      RAM_PCT=$(awk "BEGIN {printf \"%d\", ($USED_RAM/$TOTAL_RAM)*100}")
+      PUBLIC_IP=$(curl -s ifconfig.me)
+      PRIVATE_IP=$(hostname -I | awk '{print $1}')
+      HYPERVISOR=$(systemd-detect-virt)
+      TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+      # Filesystem-Informationen als JSON Array
+      FILESYSTEMS=$(df -h --output=target,fstype,size,used,avail,pcent | tail -n +2 | \
+        awk '{printf "{\"mount\":\"%s\",\"type\":\"%s\",\"size\":\"%s\",\"used\":\"%s\",\"available\":\"%s\",\"use_percent\":\"%s\"},\n", $1,$2,$3,$4,$5,$6}' | \
+        sed '$ s/,$//' | tr -d '\n')
+
+      # JSON Datei schreiben
+      cat > /var/www/html/api/info.json << EOF
+      {
+        "timestamp": "$TIMESTAMP",
+        "hostname": "$HOSTNAME",
+        "os": "$OS",
+        "kernel": "$KERNEL",
+        "architecture": "$ARCH",
+        "hypervisor": "$HYPERVISOR",
+        "uptime": "$UPTIME",
+        "cpu": {
+          "model": "$CPU_MODEL",
+          "cores": $CPU_CORES
+        },
+        "memory": {
+          "total_mb": $TOTAL_RAM,
+          "used_mb": $USED_RAM,
+          "free_mb": $FREE_RAM,
+          "used_percent": $RAM_PCT
+        },
+        "network": {
+          "public_ip": "$PUBLIC_IP",
+          "private_ip": "$PRIVATE_IP"
+        },
+        "filesystems": [$FILESYSTEMS]
+      }
+      EOF
+
+      # Filesystem-Tabellen-Zeilen generieren
+      FS_ROWS=$(df -h --output=target,fstype,size,used,avail,pcent | tail -n +2 | \
+        awk '{
+          pct=$6
+          gsub(/%/,"",pct)
+          printf "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s <span class=\"fs-pct\"><span class=\"fs-pct-fill\" style=\"width:%s%%\"></span></span></td></tr>\n", $1,$2,$3,$4,$5,$6,pct
+        }')
+
+      # HTML Seite generieren
+      cat > /var/www/html/index.html << EOF
+      <!DOCTYPE html>
+      <html lang="de">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="refresh" content="30">
+        <title>VM Info – $HOSTNAME</title>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+        <style>
+          * { box-sizing: border-box; margin: 0; padding: 0; }
+          body { font-family: system-ui, sans-serif; background: #0f172a; color: #500d4c; padding: 1.5rem; }
+          .header { margin-bottom: 1.5rem; }
+          .header-top { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+          .header-icon { width: 40px; height: 40px; border-radius: 8px; background: #080307; display: flex; align-items: center; justify-content: center; }
+          .header-icon i { font-size: 20px; color: #60a5fa; }
+          h1 { font-size: 22px; font-weight: 500; color: #f1f5f9; }
+          .subtitle { font-size: 13px; color: #64748b; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+          .dot { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; display: inline-block; }
+          .api-link { color: #60a5fa; text-decoration: none; font-size: 13px; display: inline-flex; align-items: center; gap: 4px; }
+          .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 1.5rem; }
+          .stat { background: #080307; border: 1px solid #334155; border-radius: 8px; padding: 1rem; }
+          .stat-label { font-size: 11px; color: #64748b; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+          .stat-value { font-size: 20px; font-weight: 500; color: #f1f5f9; }
+          .stat-sub { font-size: 12px; color: #64748b; margin-top: 2px; }
+          .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-bottom: 1.5rem; }
+          .card { background: #080307; border: 1px solid #334155; border-radius: 12px; padding: 1.25rem; }
+          .card-title { font-size: 11px; font-weight: 500; color: #64748b; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 1rem; display: flex; align-items: center; gap: 6px; }
+          .card-title i { font-size: 14px; }
+          .row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #334155; font-size: 14px; }
+          .row:last-child { border-bottom: none; }
+          .row-label { color: #94a3b8; }
+          .row-value { font-weight: 500; color: #f1f5f9; }
+          .badge { background: #1e3a5f; color: #60a5fa; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 500; }
+          .progress-wrap { margin-top: 12px; }
+          .progress-label { display: flex; justify-content: space-between; font-size: 12px; color: #64748b; margin-bottom: 4px; }
+          .progress-bar { height: 6px; background: #334155; border-radius: 99px; overflow: hidden; }
+          .progress-fill { height: 100%; border-radius: 99px; background: #378ADD; }
+          .fs-table { width: 100%; font-size: 13px; border-collapse: collapse; }
+          .fs-table th { color: #64748b; font-weight: 400; text-align: left; padding: 4px 8px 8px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+          .fs-table td { padding: 6px 8px 6px 0; border-top: 1px solid #334155; color: #e2e8f0; }
+          .fs-pct { display: inline-block; width: 40px; height: 4px; background: #334155; border-radius: 99px; vertical-align: middle; margin-left: 4px; overflow: hidden; }
+          .fs-pct-fill { height: 100%; background: #378ADD; border-radius: 99px; display: block; }
+          .footer { text-align: center; font-size: 12px; color: #475569; padding-top: 0.5rem; }
+          .full { grid-column: 1 / -1; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="header-top">
+            <div class="header-icon"><i class="ti ti-server"></i></div>
+            <div>
+              <h1>VM System Info</h1>
+              <div class="subtitle">
+                <span class="dot"></span> Online &nbsp;·&nbsp; $TIMESTAMP &nbsp;·&nbsp;
+                <a class="api-link" href="/api/info.json">JSON API <i class="ti ti-arrow-right"></i></a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid">
+          <div class="stat">
+            <div class="stat-label">Hostname</div>
+            <div class="stat-value" style="font-size:16px;">$HOSTNAME</div>
+            <div class="stat-sub">at-vie-1 · Exoscale</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Uptime</div>
+            <div class="stat-value" style="font-size:16px;">$UPTIME</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">CPU Cores</div>
+            <div class="stat-value">$CPU_CORES</div>
+            <div class="stat-sub">$CPU_MODEL</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">RAM verwendet</div>
+            <div class="stat-value">$${USED_RAM} MB</div>
+            <div class="stat-sub">von $${TOTAL_RAM} MB</div>
+          </div>
+        </div>
+
+        <div class="cards">
+          <div class="card">
+            <div class="card-title"><i class="ti ti-cpu"></i> System</div>
+            <div class="row"><span class="row-label">Betriebssystem</span><span class="row-value">$OS</span></div>
+            <div class="row"><span class="row-label">Kernel</span><span class="row-value">$KERNEL</span></div>
+            <div class="row"><span class="row-label">Architektur</span><span class="row-value">$ARCH</span></div>
+            <div class="row"><span class="row-label">Hypervisor</span><span class="row-value"><span class="badge">$HYPERVISOR</span></span></div>
+          </div>
+
+          <div class="card">
+            <div class="card-title"><i class="ti ti-chart-bar"></i> Memory</div>
+            <div class="row"><span class="row-label">Gesamt</span><span class="row-value">$${TOTAL_RAM} MB</span></div>
+            <div class="row"><span class="row-label">Verwendet</span><span class="row-value">$${USED_RAM} MB</span></div>
+            <div class="row"><span class="row-label">Frei</span><span class="row-value">$${FREE_RAM} MB</span></div>
+            <div class="progress-wrap">
+              <div class="progress-label"><span>Auslastung</span><span>$${RAM_PCT}%</span></div>
+              <div class="progress-bar"><div class="progress-fill" style="width:$${RAM_PCT}%"></div></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title"><i class="ti ti-network"></i> Netzwerk</div>
+            <div class="row"><span class="row-label">Public IP</span><span class="row-value">$PUBLIC_IP</span></div>
+            <div class="row"><span class="row-label">Private IP</span><span class="row-value">$PRIVATE_IP</span></div>
+            <div class="row"><span class="row-label">Zone</span><span class="row-value">at-vie-1</span></div>
+          </div>
+
+          <div class="card full">
+            <div class="card-title"><i class="ti ti-database"></i> Filesysteme</div>
+            <table class="fs-table">
+              <tr><th>Mount</th><th>Typ</th><th>Größe</th><th>Verwendet</th><th>Frei</th><th>Auslastung</th></tr>
+              $FS_ROWS
+            </table>
+          </div>
+        </div>
+
+        <div class="footer">Daten werden alle 5 Minuten aktualisiert · Seite lädt alle 30 Sekunden neu</div>
+      </body>
+      </html>
+      EOF
+
+runcmd:
+  # API Verzeichnis anlegen
+  - mkdir -p /var/www/html/api
+
+  # Info-Script sofort ausführen
+  - /usr/local/bin/collect-vm-info.sh
+
+  # Cronjob – alle 5 Minuten
+  - echo "*/5 * * * * root /usr/local/bin/collect-vm-info.sh" > /etc/cron.d/vm-info
+
+  # nginx starten
+  - systemctl enable nginx
+  - systemctl start nginx

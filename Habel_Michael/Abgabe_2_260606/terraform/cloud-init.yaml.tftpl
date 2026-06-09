@@ -1,0 +1,56 @@
+#cloud-config
+# =====================================================================
+# CloudInit – die GESAMTE OS-Konfiguration der VM (Vorgabe der Aufgabe).
+#
+# Diese Datei ist ein Terraform/OpenTofu-Template (.tftpl):
+#   $${...}            -> wird beim Apply von OpenTofu ersetzt.
+#   $${indent(6, ...)} -> rueckt den Python-Code korrekt um 6 Leerzeichen ein,
+#                        damit das YAML-Blockformat (content: |) gueltig bleibt.
+# Quelle des Dienstes: files/server.py (einzige Quelle der Wahrheit).
+# =====================================================================
+
+package_update: true          # Paketindex aktualisieren
+package_upgrade: true         # verfuegbare (Sicherheits-)Updates installieren
+packages:
+  - python3                   # Laufzeit des Info-Dienstes (nur Standardbibliothek)
+  - openssl                   # zum Erzeugen des self-signed TLS-Zertifikats
+
+write_files:
+  # -----------------------------------------------------------------
+  # 1) Der HTTP(S)-Dienst. Inhalt stammt 1:1 aus files/server.py.
+  # -----------------------------------------------------------------
+  - path: /opt/vminfo/server.py
+    permissions: '0755'
+    owner: root:root
+    content: |
+      ${indent(6, server_py)}
+
+  # -----------------------------------------------------------------
+  # 2) systemd-Unit: startet den Dienst beim Boot, Neustart bei Absturz.
+  # -----------------------------------------------------------------
+  - path: /etc/systemd/system/vminfo.service
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=VM Info HTTP(S) Service
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      ExecStart=/usr/bin/python3 /opt/vminfo/server.py
+      Restart=always
+      RestartSec=3
+      User=root
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  # self-signed Zertifikat fuer HTTPS (Port 443) erzeugen
+  - mkdir -p /opt/vminfo/tls
+  - openssl req -x509 -newkey rsa:2048 -nodes -days 365 -keyout /opt/vminfo/tls/key.pem -out /opt/vminfo/tls/cert.pem -subj "/CN=vminfo.exoscale.local"
+  # systemd neu laden, Dienst aktivieren und sofort starten
+  - systemctl daemon-reload
+  - systemctl enable --now vminfo.service

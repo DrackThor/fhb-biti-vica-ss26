@@ -1,0 +1,137 @@
+#cloud-config
+# Cloud-Init konfiguriert die VM vollständig automatisiert beim ersten Boot.
+package_update: true
+package_upgrade: true
+
+# nginx stellt den HTTP-Endpunkt bereit; jq formatiert JSON; curl liest Exoscale-Metadaten.
+packages:
+  - nginx
+  - jq
+  - curl
+
+write_files:
+  # Script erzeugt technische VM-Details als JSON und HTML.
+  - path: /usr/local/bin/render-vm-details.sh
+    owner: root:root
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      # Strikter Shell-Modus: Fehler brechen ab und undefinierte Variablen werden erkannt.
+      set -euo pipefail
+
+      # Zielverzeichnis von nginx.
+      WEB_ROOT="/var/www/html"
+
+      # Exoscale-Metadaten-Endpunkt; nur innerhalb der VM erreichbar.
+      META_BASE="http://metadata.exoscale.com/latest"
+
+      # Hilfsfunktion: Metadaten lesen, aber bei Fehlern nicht abbrechen.
+      get_meta() {
+        local path="$1"
+        curl --silent --max-time 2 "${META_BASE}/${path}" || true
+      }
+
+      # Öffentliche IP aus Exoscale-Metadaten; Fallback ist die erste erkannte globale IPv4.
+      PUBLIC_IP="$(get_meta 'meta-data/public-ipv4')"
+      if [ -z "${PUBLIC_IP}" ]; then
+        PUBLIC_IP="$(hostname -I | awk '{print $1}')"
+      fi
+
+      # JSON-Datei mit technischen Details der VM.
+      cat > "${WEB_ROOT}/details.json" <<JSON
+      {
+        "generated_at": "$(date --iso-8601=seconds)",
+        "hostname": "$(hostname)",
+        "fqdn": "$(hostname -f 2>/dev/null || hostname)",
+        "public_ip": "${PUBLIC_IP}",
+        "private_ips": "$(hostname -I | xargs)",
+        "instance_id": "$(get_meta 'meta-data/instance-id')",
+        "instance_type": "$(get_meta 'meta-data/service-offering')",
+        "zone": "$(get_meta 'meta-data/availability-zone')",
+        "kernel": "$(uname -srmo)",
+        "hypervisor_hint": "$(systemd-detect-virt 2>/dev/null || true)",
+        "memory": "$(free -h | awk '/^Mem:/ {print $2 \" total, \" $7 \" available\"}')",
+        "cpu": "$(lscpu | awk -F: '/Model name/ {gsub(/^[ \t]+/, \"\", $2); print $2; exit}')",
+        "root_storage": "$(lsblk -o NAME,SIZE,TYPE,MOUNTPOINTS | sed ':a;N;$!ba;s/\\n/; /g')",
+        "filesystems": "$(df -hT | sed ':a;N;$!ba;s/\\n/; /g')",
+        "os_release": "$(. /etc/os-release && echo ${PRETTY_NAME})"
+      }
+      JSON
+
+      # HTML-Datei rendert dasselbe JSON lesbar für Browser.
+      cat > "${WEB_ROOT}/index.html" <<'HTML'
+      <!doctype html>
+      <html lang="de">
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Exoscale VM Details</title>
+        <style>
+          body { font-family: system-ui, sans-serif; margin: 2rem; line-height: 1.5; }
+          pre { background: #f4f4f4; padding: 1rem; overflow-x: auto; border-radius: .5rem; }
+          code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+        </style>
+      </head>
+      <body>
+        <h1>Technische Details der Exoscale VM</h1>
+        <p>Diese Seite wurde vollständig per Terraform/OpenTofu und Cloud-Init bereitgestellt.</p>
+        <pre><code id="details">Lade details.json ...</code></pre>
+        <script>
+          fetch('/details.json')
+            .then(response => response.json())
+            .then(data => {
+              document.getElementById('details').textContent = JSON.stringify(data, null, 2);
+            })
+            .catch(error => {
+              document.getElementById('details').textContent = 'Fehler beim Laden der VM-Details: ' + error;
+            });
+        </script>
+      </body>
+      </html>
+      HTML
+
+      # Einfacher Healthcheck für automatisierte Tests.
+      echo "ok" > "${WEB_ROOT}/health"
+
+  # systemd Service generiert Details beim Booten und nach Konfigurationsänderungen.
+  - path: /etc/systemd/system/vm-details.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Render Exoscale VM technical details for nginx
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/render-vm-details.sh
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # systemd Timer aktualisiert die Details regelmäßig, damit Memory/Filesystem-Werte frisch bleiben.
+  - path: /etc/systemd/system/vm-details.timer
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Refresh Exoscale VM details every minute
+
+      [Timer]
+      OnBootSec=20sec
+      OnUnitActiveSec=60sec
+      Unit=vm-details.service
+
+      [Install]
+      WantedBy=timers.target
+
+runcmd:
+  # nginx wird aktiviert und gestartet.
+  - systemctl enable --now nginx
+  # Details-Service und Timer werden aktiviert.
+  - systemctl daemon-reload
+  - systemctl enable --now vm-details.service
+  - systemctl enable --now vm-details.timer
+  # Cloud-Init Abschlussmarker für spätere Fehlersuche.
+  - echo "Cloud-Init finished at $(date --iso-8601=seconds)" > /var/log/abgabe-2-cloud-init.done

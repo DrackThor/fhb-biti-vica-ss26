@@ -1,0 +1,56 @@
+name: Create Exoscale Infrastructure
+
+# Der Workflow wird manuell über die GitHub Actions Oberfläche gestartet.
+on:
+  workflow_dispatch:
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+
+    # Der Workflow benötigt nur Leserechte auf das Repository.
+    permissions:
+      contents: read
+
+    # Alle OpenTofu-Befehle werden im Abgabeordner ausgeführt.
+    defaults:
+      run:
+        working-directory: ./Trinko_Matteo/Abgabe_2_260526
+
+    # Exoscale-Zugangsdaten werden sicher aus GitHub Secrets geladen.
+    env:
+      EXOSCALE_API_KEY: ${{ secrets.EXOSCALE_API_KEY }}
+      EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+
+    steps:
+      # Lädt den Repository-Inhalt in den GitHub Actions Runner.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Installiert OpenTofu im Runner.
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+
+      # Initialisiert OpenTofu und lädt die benötigten Provider.
+      - name: Initialize OpenTofu
+        run: tofu init
+
+      # Prüft die Konfiguration auf formale Fehler.
+      - name: Validate OpenTofu configuration
+        run: tofu validate
+
+      # Zeigt vorab, welche Infrastruktur erstellt oder geändert wird.
+      - name: Show execution plan
+        run: tofu plan
+
+      # Erstellt die Exoscale-Infrastruktur automatisch.
+      - name: Create infrastructure
+        run: tofu apply -auto-approve
+
+      # Speichert den erzeugten OpenTofu-State als GitHub Cache.
+      # Dieser State wird später vom Destroy-Workflow benötigt.
+      - name: Save OpenTofu state cache
+        uses: actions/cache/save@v4
+        with:
+          path: ./Trinko_Matteo/Abgabe_2_260526/terraform.tfstate
+          key: opentofu-state

@@ -1,0 +1,184 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+packages:
+  - curl
+  - util-linux
+  - dmidecode
+  - net-tools
+  - debian-keyring
+  - debian-archive-keyring
+  - apt-transport-https
+  - openssl
+
+write_files:
+
+  # === Skript: Sammelt alle technischen Details der VM und erzeugt HTML ===
+  - path: /usr/local/bin/generate-sysinfo.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      mkdir -p /var/www/html
+
+      OS_INFO=$(hostnamectl | grep "Operating System" | cut -d: -f2- | xargs)
+      KERNEL_VERSION=$(uname -r)
+      KERNEL_TYPE=$(uname -s)
+      KERNEL_ARCH=$(uname -m)
+      HYPERVISOR=$(systemd-detect-virt)
+      HYPERVISOR_DETAIL=$(dmidecode -s system-product-name 2>/dev/null || echo "N/A")
+      HYPERVISOR_VENDOR=$(dmidecode -s system-manufacturer 2>/dev/null || echo "N/A")
+      PUBLIC_IP=$(curl -s --max-time 5 ifconfig.me || echo "nicht verfuegbar")
+      PRIVATE_IPS=$(hostname -I | xargs)
+      HOSTNAME_INFO=$(hostname)
+      CPU_MODEL=$(lscpu | grep "Model name" | cut -d: -f2- | xargs)
+      CPU_CORES=$(nproc)
+      CPU_ARCH=$(lscpu | grep "Architecture" | cut -d: -f2- | xargs)
+      MEMORY_INFO=$(free -h | awk '/^Mem:/ {print $2 " gesamt, " $3 " genutzt, " $7 " verfuegbar"}')
+      DISK_ROOT=$(df -h / | awk '/\// {print $2 " gesamt, " $3 " genutzt, " $4 " frei (" $5 " belegt)"}')
+      UPTIME_INFO=$(uptime -p)
+      TIMESTAMP=$(date '+%d.%m.%Y %H:%M:%S %Z')
+
+      cat <<EOF > /var/www/html/index.html
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <meta charset="utf-8">
+          <title>Exoscale VM - Technische Details</title>
+          <style>
+              body { font-family: Arial, sans-serif; margin: 40px; background-color: #f4f4f9; color: #333; }
+              h1 { color: #0056b3; border-bottom: 2px solid #0056b3; padding-bottom: 10px; }
+              h2 { color: #0056b3; margin-top: 30px; }
+              pre { background: #fff; padding: 20px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; line-height: 1.8; overflow-x: auto; }
+              .section { margin-bottom: 20px; }
+          </style>
+      </head>
+      <body>
+          <h1>Technische Details der Exoscale VM</h1>
+
+          <div class="section">
+          <h2>Allgemein</h2>
+          <pre>
+      <strong>Hostname:</strong>          ${HOSTNAME_INFO}
+      <strong>Betriebssystem:</strong>    ${OS_INFO}
+      <strong>Uptime:</strong>            ${UPTIME_INFO}
+          </pre>
+          </div>
+
+          <div class="section">
+          <h2>Netzwerk</h2>
+          <pre>
+      <strong>Oeffentliche IP:</strong>   ${PUBLIC_IP}
+      <strong>Private IPs:</strong>       ${PRIVATE_IPS}
+          </pre>
+          </div>
+
+          <div class="section">
+          <h2>CPU</h2>
+          <pre>
+      <strong>Modell:</strong>            ${CPU_MODEL}
+      <strong>Kerne:</strong>             ${CPU_CORES}
+      <strong>Architektur:</strong>       ${CPU_ARCH}
+          </pre>
+          </div>
+
+          <div class="section">
+          <h2>Arbeitsspeicher (RAM)</h2>
+          <pre>
+      <strong>Speicher:</strong>          ${MEMORY_INFO}
+          </pre>
+          </div>
+
+          <div class="section">
+          <h2>Kernel</h2>
+          <pre>
+      <strong>Kernel-Version:</strong>    ${KERNEL_VERSION}
+      <strong>Kernel-Typ:</strong>        ${KERNEL_TYPE}
+      <strong>Architektur:</strong>       ${KERNEL_ARCH}
+          </pre>
+          </div>
+
+          <div class="section">
+          <h2>Hypervisor</h2>
+          <pre>
+      <strong>Virtualisierung:</strong>   ${HYPERVISOR}
+      <strong>Produkt:</strong>           ${HYPERVISOR_DETAIL}
+      <strong>Hersteller:</strong>        ${HYPERVISOR_VENDOR}
+          </pre>
+          </div>
+
+          <div class="section">
+          <h2>Storage / Root-Partition</h2>
+          <pre>
+      <strong>Root (/):</strong>          ${DISK_ROOT}
+          </pre>
+          </div>
+
+          <div class="section">
+          <h2>Block Devices</h2>
+          <pre>
+      $(lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT | grep -v loop)
+          </pre>
+          </div>
+
+          <div class="section">
+          <h2>Dateisysteme</h2>
+          <pre>
+      $(df -Th | grep -vE 'tmpfs|loop|udev')
+          </pre>
+          </div>
+
+          <p><em>Zuletzt aktualisiert: ${TIMESTAMP}</em></p>
+      </body>
+      </html>
+      EOF
+
+  # === systemd Service: Python Webserver nur auf localhost ===
+  - path: /etc/systemd/system/sysinfo-web.service
+    content: |
+      [Unit]
+      Description=System-Info Webserver
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      ExecStartPre=/usr/local/bin/generate-sysinfo.sh
+      ExecStart=/usr/bin/python3 -m http.server 8080 --bind 127.0.0.1 --directory /var/www/html
+      WorkingDirectory=/var/www/html
+      Restart=always
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # === Cronjob: Aktualisiert Systemdaten jede Minute ===
+  - path: /etc/cron.d/sysinfo-refresh
+    content: |
+      * * * * * root /usr/local/bin/generate-sysinfo.sh > /dev/null 2>&1
+
+runcmd:
+  # Caddy Repository hinzufuegen und installieren
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
+  - apt-get update
+  - apt-get install -y caddy
+  # Self-signed Zertifikat erstellen
+  - mkdir -p /etc/caddy/certs
+  - openssl req -x509 -newkey rsa:2048 -keyout /etc/caddy/certs/caddy.key -out /etc/caddy/certs/caddy.crt -days 365 -nodes -subj '/CN=sysinfo'
+  - chown -R caddy:caddy /etc/caddy/certs
+  # Caddyfile NACH der Installation ueberschreiben (vermeidet dpkg-Konflikt)
+  - echo ':443 {' > /etc/caddy/Caddyfile
+  - echo '  tls /etc/caddy/certs/caddy.crt /etc/caddy/certs/caddy.key' >> /etc/caddy/Caddyfile
+  - echo '  reverse_proxy localhost:8080' >> /etc/caddy/Caddyfile
+  - echo '}' >> /etc/caddy/Caddyfile
+  - echo ':80 {' >> /etc/caddy/Caddyfile
+  - echo '  redir https://{host}{uri} permanent' >> /etc/caddy/Caddyfile
+  - echo '}' >> /etc/caddy/Caddyfile
+  # Erste HTML-Seite generieren
+  - /usr/local/bin/generate-sysinfo.sh
+  # Python Webserver starten (intern auf Port 8080)
+  - systemctl daemon-reload
+  - systemctl enable sysinfo-web.service
+  - systemctl start sysinfo-web.service
+  # Caddy mit HTTPS starten
+  - systemctl enable caddy
+  - systemctl restart caddy

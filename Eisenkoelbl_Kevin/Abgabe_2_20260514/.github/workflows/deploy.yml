@@ -1,0 +1,72 @@
+name: 🚀 Infrastruktur erstellen
+
+on:
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: 'Vollstaendiger Domainname (z.B. vica.example.com)'
+        required: true
+        type: string
+      letsencrypt_email:
+        description: 'E-Mail fuer Lets Encrypt'
+        required: true
+        type: string
+
+jobs:
+  terraform-apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: terraform
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: State Cache laden
+        uses: actions/cache@v4
+        with:
+          path: terraform/terraform.tfstate
+          key: tfstate-vica-ss26
+
+      - name: OpenTofu installieren
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.7.3"
+
+      - name: Terraform init
+        run: tofu init
+
+      - name: Terraform plan
+        run: |
+          tofu plan \
+            -var="exoscale_api_key=${{ secrets.EXOSCALE_API_KEY }}" \
+            -var="exoscale_api_secret=${{ secrets.EXOSCALE_API_SECRET }}" \
+            -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}" \
+            -var="domain=${{ github.event.inputs.domain }}" \
+            -var="letsencrypt_email=${{ github.event.inputs.letsencrypt_email }}" \
+            -out=tfplan
+
+      - name: Terraform apply
+        run: tofu apply -auto-approve tfplan
+
+      - name: State Cache speichern
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: terraform/terraform.tfstate
+          key: tfstate-vica-ss26
+
+      - name: Job-Summary schreiben
+        if: success()
+        run: |
+          VM_IP=$(tofu output -raw vm_public_ip)
+          DOMAIN="${{ github.event.inputs.domain }}"
+          echo "## Infrastruktur erfolgreich erstellt" >> $GITHUB_STEP_SUMMARY
+          echo "| Ressource | Wert |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| VM IP | $VM_IP |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dashboard | http://$DOMAIN/ |" >> $GITHUB_STEP_SUMMARY
+          echo "| API | http://$DOMAIN/api |" >> $GITHUB_STEP_SUMMARY

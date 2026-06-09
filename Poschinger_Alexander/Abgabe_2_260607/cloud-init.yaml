@@ -1,0 +1,176 @@
+#cloud-config
+
+# Pakete aktualisieren und nginx installieren.
+package_update: true
+package_upgrade: true
+
+packages:
+  - nginx
+  - jq
+
+# Dateien auf der VM erstellen.
+write_files:
+  # Script zum Sammeln technischer Informationen über die VM.
+  - path: /usr/local/bin/generate-vm-info.sh
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/bin/bash
+
+      # Zielverzeichnisse für Website und API anlegen.
+      mkdir -p /var/www/html/api
+
+      # Öffentliche IP über einen externen Dienst abfragen.
+      # Falls der Dienst nicht erreichbar ist, wird "unknown" gesetzt.
+      PUBLIC_IP=$(curl -s --max-time 5 https://ifconfig.me || echo "unknown")
+
+      # Private IP-Adresse aus dem System auslesen.
+      PRIVATE_IP=$(hostname -I | awk '{print $1}')
+
+      # Betriebssysteminformationen aus /etc/os-release lesen.
+      OS_NAME=$(grep PRETTY_NAME /etc/os-release | cut -d= -f2 | tr -d '"')
+
+      # Kernel-Version auslesen.
+      KERNEL=$(uname -r)
+
+      # Hostname der VM.
+      HOSTNAME=$(hostname)
+
+      # Virtualisierung/Hypervisor erkennen.
+      HYPERVISOR=$(systemd-detect-virt || echo "unknown")
+
+      # Arbeitsspeicher lesbar ausgeben.
+      MEMORY=$(free -h | awk '/Mem:/ {print $2}')
+
+      # CPU-Modell auslesen.
+      CPU_MODEL=$(grep -m 1 "model name" /proc/cpuinfo | cut -d: -f2 | sed 's/^ //')
+
+      # Anzahl der CPU-Kerne.
+      CPU_CORES=$(nproc)
+
+      # Blockgeräte/Storage auslesen.
+      STORAGE=$(lsblk -o NAME,SIZE,TYPE,MOUNTPOINT | sed ':a;N;$!ba;s/\n/<br>/g')
+
+      # Dateisysteme auslesen.
+      FILESYSTEMS=$(df -hT | sed ':a;N;$!ba;s/\n/<br>/g')
+
+      # Uptime lesbar ausgeben.
+      UPTIME=$(uptime -p)
+
+      # Zeitpunkt der letzten Aktualisierung.
+      UPDATED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+      # HTML-Seite erzeugen.
+      cat > /var/www/html/index.html <<EOF
+      <!DOCTYPE html>
+      <html lang="de">
+      <head>
+        <meta charset="UTF-8">
+        <title>Exoscale VM Informationen</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+            background: #f4f4f4;
+            color: #222;
+          }
+
+          main {
+            max-width: 900px;
+            margin: auto;
+            background: white;
+            padding: 24px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+          }
+
+          h1 {
+            margin-top: 0;
+          }
+
+          table {
+            width: 100%;
+            border-collapse: collapse;
+          }
+
+          th, td {
+            text-align: left;
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+            vertical-align: top;
+          }
+
+          th {
+            width: 220px;
+            background: #fafafa;
+          }
+
+          code {
+            background: #eee;
+            padding: 2px 4px;
+            border-radius: 4px;
+          }
+        </style>
+      </head>
+      <body>
+        <main>
+          <h1>Technische Informationen der Exoscale VM</h1>
+          <p>Diese Seite wurde automatisch per CloudInit auf der VM eingerichtet.</p>
+
+          <table>
+            <tr><th>Hostname</th><td>$HOSTNAME</td></tr>
+            <tr><th>Öffentliche IP</th><td>$PUBLIC_IP</td></tr>
+            <tr><th>Private IP</th><td>$PRIVATE_IP</td></tr>
+            <tr><th>Betriebssystem</th><td>$OS_NAME</td></tr>
+            <tr><th>Kernel</th><td>$KERNEL</td></tr>
+            <tr><th>Hypervisor</th><td>$HYPERVISOR</td></tr>
+            <tr><th>CPU</th><td>$CPU_MODEL</td></tr>
+            <tr><th>CPU-Kerne</th><td>$CPU_CORES</td></tr>
+            <tr><th>Arbeitsspeicher</th><td>$MEMORY</td></tr>
+            <tr><th>Storage</th><td><code>$STORAGE</code></td></tr>
+            <tr><th>Dateisysteme</th><td><code>$FILESYSTEMS</code></td></tr>
+            <tr><th>Uptime</th><td>$UPTIME</td></tr>
+            <tr><th>Letzte Aktualisierung</th><td>$UPDATED_AT</td></tr>
+          </table>
+
+          <p>JSON API: <a href="/api/info">/api/info</a></p>
+        </main>
+      </body>
+      </html>
+      EOF
+
+      # JSON-Datei für API-Endpunkt erzeugen.
+      cat > /var/www/html/api/info <<EOF
+      {
+        "hostname": "$HOSTNAME",
+        "public_ip": "$PUBLIC_IP",
+        "private_ip": "$PRIVATE_IP",
+        "os": "$OS_NAME",
+        "kernel": "$KERNEL",
+        "hypervisor": "$HYPERVISOR",
+        "cpu_model": "$CPU_MODEL",
+        "cpu_cores": "$CPU_CORES",
+        "memory": "$MEMORY",
+        "uptime": "$UPTIME",
+        "updated_at": "$UPDATED_AT"
+      }
+      EOF
+
+  # Cronjob, der die VM-Informationen regelmäßig aktualisiert.
+  - path: /etc/cron.d/update-vm-info
+    permissions: '0644'
+    owner: root:root
+    content: |
+      * * * * * root /usr/local/bin/generate-vm-info.sh
+
+# Befehle, die nach dem Erstellen der Dateien ausgeführt werden.
+runcmd:
+  # nginx aktivieren und starten.
+  - systemctl enable nginx
+  - systemctl start nginx
+
+  # VM-Informationen direkt beim ersten Start erzeugen.
+  - /usr/local/bin/generate-vm-info.sh
+
+  # nginx neu laden, damit die Dateien ausgeliefert werden.
+  - systemctl reload nginx

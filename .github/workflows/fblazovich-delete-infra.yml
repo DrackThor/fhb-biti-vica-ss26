@@ -1,0 +1,55 @@
+name: Delete Exoscale Infrastructure
+
+on:
+  workflow_dispatch:
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+
+    # Standard Arbeitsverzeichnis für alle Befehle
+    defaults:
+      run:
+        working-directory: ./Blazovich_Fabian/Abgabe_2_260603
+
+    # Umgebungsvariablen
+    env:
+
+      # Exoscale API Key aus GitHub Secrets
+      TF_VAR_exoscale_key: ${{ secrets.EXOSCALE_API_KEY }}
+
+      # Exoscale API Secret aus GitHub Secrets
+      TF_VAR_exoscale_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # Arbeitsverzeichnis des Terraform States
+      TF_WORKING_DIR: ./Blazovich_Fabian/Abgabe_2_260603
+
+      # Name des Create Workflows
+      TF_WORKFLOW_NAME: fblazovich-create-infra.yml
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+
+      # Lädt den gespeicherten Terraform State herunter
+      - name: Download Terraform State
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: ${{ env.TF_WORKFLOW_NAME }}
+          name: fblazovich-tofu-state
+          path: ${{ env.TF_WORKING_DIR }}
+          search_artifacts: true
+
+      - name: Initialize OpenTofu
+        run: tofu init
+
+      # Überprüft die OpenTofu Konfiguration
+      - name: Validate OpenTofu configuration
+        run: tofu validate
+
+      # Löscht die komplette Infrastruktur
+      - name: Destroy OpenTofu infrastructure
+        run: tofu destroy -auto-approve

@@ -1,0 +1,47 @@
+name: Poschinger Abgabe 2 - Create Infrastructure
+
+on:
+  workflow_dispatch:
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+
+    # Diese Umgebungsvariablen stehen allen tofu-Befehlen zur Verfügung.
+    env:
+      # Zugangsdaten für den Exoscale Provider.
+      EXOSCALE_API_KEY: ${{ secrets.EXOSCALE_API_KEY }}
+      EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # SSH Public Key wird an die Terraform/OpenTofu Variable ssh_public_key übergeben.
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+
+      # Das S3-kompatible Backend verwendet AWS-kompatible Variablennamen.
+      # Exoscale Object Storage ist S3-kompatibel, daher werden hier dieselben Secrets verwendet.
+      AWS_ACCESS_KEY_ID: ${{ secrets.EXOSCALE_API_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.EXOSCALE_API_SECRET }}
+
+    defaults:
+      run:
+        working-directory: Poschinger_Alexander/Abgabe_2_260607
+
+    steps:
+      # Holt den aktuellen Repository-Code in den GitHub Runner.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Installiert OpenTofu auf dem GitHub Runner.
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+
+      # Initialisiert OpenTofu, lädt den Exoscale Provider und verbindet sich mit dem Remote State.
+      - name: Init OpenTofu
+        run: tofu init
+
+      # Prüft die geplanten Änderungen, ohne sie anzuwenden.
+      - name: Plan infrastructure
+        run: tofu plan
+
+      # Erstellt die Exoscale Infrastruktur.
+      - name: Apply infrastructure
+        run: tofu apply -auto-approve

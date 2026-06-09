@@ -1,0 +1,24 @@
+name: Exoscale Deploy
+on: workflow_dispatch
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./Wintner_Niklas/Abgabe_2_260512
+    steps:
+      - uses: actions/checkout@v3
+      - uses: hashicorp/setup-terraform@v2
+      
+      - name: Terraform Init
+        run: terraform init
+        env:
+          TF_VAR_exoscale_key: ${{ secrets.EXOSCALE_KEY }}
+          TF_VAR_exoscale_secret: ${{ secrets.EXOSCALE_SECRET }}
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
+        env:
+          TF_VAR_exoscale_key: ${{ secrets.EXOSCALE_KEY }}
+          TF_VAR_exoscale_secret: ${{ secrets.EXOSCALE_SECRET }}

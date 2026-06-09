@@ -1,0 +1,40 @@
+#cloud-config
+package_update: true
+packages:
+  - python3
+
+write_files:
+  - path: /opt/webserver/app.py
+    owner: root:root
+    permissions: '0644'
+    content: |
+      from http.server import SimpleHTTPRequestHandler, HTTPServer
+      import json, subprocess, platform
+
+      class MyHandler(SimpleHTTPRequestHandler):
+          def get_details(self):
+              return {
+                  "Kernel": platform.release(),
+                  "RAM": subprocess.getoutput("free -h | grep Mem | awk '{print $2}'"),
+                  "Disk": subprocess.getoutput("df -h / | awk 'NR==2 {print $2}'"),
+                  "Hypervisor": "Exoscale KVM"
+              }
+
+          def do_GET(self):
+              data = self.get_details()
+              if self.path == '/api':
+                  self.send_response(200)
+                  self.send_header('Content-type', 'application/json')
+                  self.end_headers()
+                  self.wfile.write(json.dumps(data).encode())
+              else:
+                  self.send_response(200)
+                  self.send_header('Content-type', 'text/html')
+                  self.end_headers()
+                  self.wfile.write(f"<h1>VM System Details</h1><p>Kernel: {data['Kernel']}</p><p>RAM: {data['RAM']}</p><p>Disk: {data['Disk']}</p><a href='/api'>Daten als JSON API</a>".encode())
+
+      HTTPServer(('0.0.0.0', 80), MyHandler).serve_forever()
+
+runcmd:
+  - mkdir -p /opt/webserver
+  - python3 /opt/webserver/app.py &

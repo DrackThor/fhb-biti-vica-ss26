@@ -1,0 +1,29 @@
+name : Delete Exoscale Infrastructure
+
+on:
+  workflow_dispatch:
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./terraform
+
+    env:
+      EXOSCALE_API_KEY: ${{ secrets.EXOSCALE_API_KEY }}
+      EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+
+    steps:
+        - name: Checkout Repository
+          uses: actions/checkout@v3
+
+        - name: Setup OpenTofu
+          uses: opentofu/setup-opentofu@v1
+
+        - name: Init OpenTofu
+          run: tofu init
+
+        - name: Destroy infrastructure
+          run: tofu destroy -auto-approve

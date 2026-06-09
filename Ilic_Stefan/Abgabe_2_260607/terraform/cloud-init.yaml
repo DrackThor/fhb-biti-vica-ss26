@@ -1,0 +1,255 @@
+#cloud-config
+# =============================================================================
+# cloud-init (Abgabe 2, v2 mit echter DNS-Zone)
+# -----------------------------------------------------------------------------
+# Wird von Terraform via templatefile() gerendert. Eingesetzte Platzhalter:
+#   ${website_domain}  z.B. ilic.biti-fhb.org      (HTML)
+#   ${api_domain}      z.B. api.ilic.biti-fhb.org  (JSON)
+#   ${admin_email}     E-Mail fuer Let's Encrypt
+#   ${acme_ca}         ACME-CA-URL (Produktion oder Staging)
+#
+# Ablauf beim ersten Boot:
+#   1. Caddy installieren.
+#   2. Python-Generator ablegen, der VM-Infos sammelt und index.html + api.json
+#      schreibt; systemd-Timer regeneriert jede Minute (Aktualitaet).
+#   3. Caddy mit den fixen Domains starten -> automatisches Let's-Encrypt-HTTPS.
+# =============================================================================
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - debian-keyring
+  - debian-archive-keyring
+  - apt-transport-https
+  - curl
+  - gpg
+  - python3
+
+write_files:
+  # ---------------------------------------------------------------------------
+  # Caddyfile: zwei getrennte Domains = zwei Endpunkte (HTML + JSON) mit HTTPS.
+  # ---------------------------------------------------------------------------
+  - path: /etc/caddy/Caddyfile
+    permissions: "0644"
+    content: |
+      {
+          # Let's Encrypt: E-Mail fuer Benachrichtigungen + CA-Endpunkt
+          # (Produktion oder Staging, von Terraform gesetzt).
+          email ${admin_email}
+          acme_ca ${acme_ca}
+      }
+
+      # --- Website (HTML) ---
+      ${website_domain} {
+          encode gzip
+          root * /var/www/html
+          file_server
+      }
+
+      # --- API (JSON) ---
+      ${api_domain} {
+          encode gzip
+          header Content-Type "application/json; charset=utf-8"
+          root * /var/www/html
+          rewrite * /api.json
+          file_server
+      }
+
+  # ---------------------------------------------------------------------------
+  # Info-Generator: sammelt Systemdaten, schreibt index.html + api.json.
+  # ---------------------------------------------------------------------------
+  - path: /usr/local/bin/gen-info.py
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env python3
+      # -*- coding: utf-8 -*-
+      """Sammelt VM-Infos und erzeugt index.html (Website) und api.json (API)."""
+      import json, os, platform, socket, subprocess
+      from datetime import datetime, timezone
+
+      WEBROOT = "/var/www/html"
+
+      def sh(cmd):
+          try:
+              return subprocess.check_output(cmd, shell=True, text=True,
+                                             stderr=subprocess.DEVNULL).strip()
+          except Exception:
+              return ""
+
+      def public_ip():
+          ip = sh("curl -s --max-time 5 https://api.ipify.org")
+          if not ip:
+              parts = sh("hostname -I").split()
+              ip = parts[0] if parts else ""
+          return ip or "0.0.0.0"
+
+      def cpu_model():
+          out = sh("lscpu | grep -i 'model name' | head -n1 | cut -d: -f2")
+          return out.strip() or platform.processor() or "unbekannt"
+
+      def mem_info():
+          info = {}
+          try:
+              with open("/proc/meminfo") as f:
+                  for line in f:
+                      k, _, v = line.partition(":")
+                      info[k.strip()] = v.strip()
+              total = int(info.get("MemTotal", "0 kB").split()[0]) // 1024
+              avail = int(info.get("MemAvailable", "0 kB").split()[0]) // 1024
+              return total, avail
+          except Exception:
+              return 0, 0
+
+      def os_pretty():
+          try:
+              with open("/etc/os-release") as f:
+                  for line in f:
+                      if line.startswith("PRETTY_NAME="):
+                          return line.split("=", 1)[1].strip().strip('"')
+          except Exception:
+              pass
+          return platform.platform()
+
+      def disks():
+          raw = sh("lsblk -b -d -o NAME,SIZE,TYPE,MODEL --json")
+          try:
+              return json.loads(raw).get("blockdevices", []) if raw else []
+          except Exception:
+              return []
+
+      def filesystems():
+          out = sh("df -hPT -x tmpfs -x devtmpfs -x squashfs")
+          rows = []
+          for line in out.splitlines()[1:]:
+              p = line.split()
+              if len(p) >= 7:
+                  rows.append({"device": p[0], "type": p[1], "size": p[2],
+                               "used": p[3], "avail": p[4], "use_pct": p[5], "mount": p[6]})
+          return rows
+
+      def gather():
+          ip = public_ip()
+          total, avail = mem_info()
+          return {
+              "hostname": socket.gethostname(),
+              "public_ip": ip,
+              "os": os_pretty(),
+              "kernel": platform.release(),
+              "architecture": platform.machine(),
+              "hypervisor": sh("systemd-detect-virt") or "unbekannt",
+              "cpu_model": cpu_model(),
+              "cpu_cores": os.cpu_count(),
+              "memory_total_mb": total,
+              "memory_available_mb": avail,
+              "uptime": sh("uptime -p"),
+              "disks": disks(),
+              "filesystems": filesystems(),
+              "generated_at": datetime.now(timezone.utc).isoformat(),
+              "cloud": "Exoscale",
+          }
+
+      def render_html(d):
+          css = """
+          :root { --accent:#3ecf8e; --card:#16302380; --txt:#e8f3ec; --muted:#9fb8aa; }
+          * { box-sizing:border-box; margin:0; padding:0; }
+          body { font-family:-apple-system,Segoe UI,Roboto,sans-serif; background:radial-gradient(circle at 20% 0%,#13362a,#0f1f17); color:var(--txt); min-height:100vh; padding:2.5rem 1rem; }
+          .wrap { max-width:860px; margin:0 auto; }
+          h1 { font-size:1.9rem; letter-spacing:-0.5px; }
+          .sub { color:var(--muted); margin:.4rem 0 2rem; }
+          .pill { display:inline-block; background:var(--accent); color:#06120c; font-weight:600; padding:.2rem .7rem; border-radius:99px; font-size:.8rem; }
+          .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:1rem; }
+          .card { background:var(--card); border:1px solid #2a4a3a; border-radius:14px; padding:1.1rem 1.2rem; }
+          .card h3 { font-size:.72rem; text-transform:uppercase; letter-spacing:1px; color:var(--accent); margin-bottom:.4rem; }
+          .card .v { font-size:1.05rem; word-break:break-word; }
+          table { width:100%; border-collapse:collapse; margin-top:.6rem; font-size:.86rem; }
+          th,td { text-align:left; padding:.45rem .5rem; border-bottom:1px solid #2a4a3a; }
+          th { color:var(--muted); }
+          .section { margin-top:2rem; }
+          .section h2 { font-size:1.1rem; margin-bottom:.3rem; }
+          footer { margin-top:2.5rem; color:var(--muted); font-size:.82rem; }
+          a { color:var(--accent); }
+          """
+          fs_rows = "".join(
+              "<tr><td>{m}</td><td>{t}</td><td>{s}</td><td>{u}</td><td>{a}</td><td>{p}</td></tr>".format(
+                  m=f["mount"], t=f["type"], s=f["size"], u=f["used"], a=f["avail"], p=f["use_pct"])
+              for f in d["filesystems"])
+          disk_rows = "".join(
+              "<tr><td>{n}</td><td>{sz} GB</td><td>{t}</td><td>{m}</td></tr>".format(
+                  n=dev.get("name", "?"),
+                  sz=round(int(dev.get("size", 0)) / (1024**3), 1) if dev.get("size") else "?",
+                  t=dev.get("type", ""), m=dev.get("model") or "-")
+              for dev in d["disks"])
+          h = "<!doctype html><html lang='de'><head><meta charset='utf-8'>"
+          h += "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+          h += "<title>VM Info - " + d["hostname"] + "</title><style>" + css + "</style></head><body><div class='wrap'>"
+          h += "<span class='pill'>" + d["cloud"] + " &bull; " + d["hypervisor"] + "</span>"
+          h += "<h1>Technische Details dieser VM</h1>"
+          h += "<p class='sub'>Automatisch generiert, aktualisiert sich jede Minute. Maschinenlesbar als JSON ueber die API-Subdomain.</p>"
+          h += "<div class='grid'>"
+          cards = [("Hostname", d["hostname"]), ("Oeffentliche IP", d["public_ip"]),
+                   ("Betriebssystem", d["os"]), ("Kernel", d["kernel"]),
+                   ("Architektur", d["architecture"]), ("Hypervisor", d["hypervisor"]),
+                   ("CPU", d["cpu_model"]), ("CPU-Kerne", str(d["cpu_cores"])),
+                   ("RAM gesamt", str(d["memory_total_mb"]) + " MB"),
+                   ("RAM frei", str(d["memory_available_mb"]) + " MB"),
+                   ("Uptime", d["uptime"])]
+          for title, val in cards:
+              h += "<div class='card'><h3>" + title + "</h3><div class='v'>" + str(val) + "</div></div>"
+          h += "</div>"
+          h += "<div class='section'><h2>Storage / Block-Devices</h2><table><tr><th>Name</th><th>Groesse</th><th>Typ</th><th>Modell</th></tr>" + disk_rows + "</table></div>"
+          h += "<div class='section'><h2>Filesysteme</h2><table><tr><th>Mount</th><th>Typ</th><th>Groesse</th><th>Belegt</th><th>Frei</th><th>%</th></tr>" + fs_rows + "</table></div>"
+          h += "<footer>Generiert am " + d["generated_at"] + " (UTC)</footer>"
+          h += "</div></body></html>"
+          return h
+
+      def main():
+          os.makedirs(WEBROOT, exist_ok=True)
+          d = gather()
+          with open(os.path.join(WEBROOT, "api.json"), "w") as f:
+              json.dump(d, f, indent=2, ensure_ascii=False)
+          with open(os.path.join(WEBROOT, "index.html"), "w") as f:
+              f.write(render_html(d))
+
+      if __name__ == "__main__":
+          main()
+
+  # systemd-Service (oneshot).
+  - path: /etc/systemd/system/gen-info.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=VM-Infos generieren (HTML + JSON)
+      After=network-online.target
+      Wants=network-online.target
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/bin/python3 /usr/local/bin/gen-info.py
+
+  # systemd-Timer: alle 60s.
+  - path: /etc/systemd/system/gen-info.timer
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Generiert VM-Infos regelmaessig neu
+      [Timer]
+      OnBootSec=30s
+      OnUnitActiveSec=60s
+      AccuracySec=5s
+      [Install]
+      WantedBy=timers.target
+
+runcmd:
+  # Caddy aus offiziellem Repo installieren.
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
+  - apt-get update
+  - DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::=--force-confold caddy
+  # Erste Generierung + Timer aktivieren.
+  - mkdir -p /var/www/html && chmod 755 /var/www/html
+  - /usr/bin/python3 /usr/local/bin/gen-info.py
+  - systemctl daemon-reload
+  - systemctl enable --now gen-info.timer
+  # Caddy starten -> holt automatisch Let's-Encrypt-Zertifikate fuer beide Domains.
+  - systemctl enable caddy
+  - systemctl restart caddy

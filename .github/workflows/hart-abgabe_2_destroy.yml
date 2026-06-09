@@ -1,0 +1,57 @@
+# Löscht die komplette Exoscale-Infrastruktur für Abgabe 2 per OpenTofu.
+name: Abgabe 2 - Destroy Exoscale Infrastructure
+
+on:
+  # Manuelles Starten im GitHub Actions UI, damit nicht versehentlich gelöscht wird.
+  workflow_dispatch:
+
+permissions:
+  # checkout benötigt Leserechte auf Repository-Inhalte.
+  contents: read
+
+env:
+  # Arbeitsverzeichnis der Terraform/OpenTofu-Konfiguration.
+  TF_WORKING_DIR: Abgabe_2_Harthold/terraform
+  # Exoscale Provider Credentials aus GitHub Secrets.
+  EXOSCALE_API_KEY: ${{ secrets.EXOSCALE_API_KEY }}
+  EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+  # S3-kompatible Backend Credentials für Exoscale SOS.
+  AWS_ACCESS_KEY_ID: ${{ secrets.SOS_ACCESS_KEY }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.SOS_SECRET_KEY }}
+
+jobs:
+  destroy:
+    name: tofu destroy
+    runs-on: ubuntu-latest
+
+    steps:
+      # Lädt den Repository-Inhalt in den Runner.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Installiert OpenTofu CLI auf dem GitHub Runner.
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_wrapper: false
+
+      # Initialisiert dasselbe Remote-State-Backend wie der Create-Workflow.
+      - name: Initialize OpenTofu
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          tofu init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=abgabe-2-harthold/terraform.tfstate" \
+            -backend-config="region=${{ vars.EXOSCALE_ZONE }}" \
+            -backend-config="endpoint=https://sos-${{ vars.EXOSCALE_ZONE }}.exo.io" \
+            -backend-config="skip_credentials_validation=true" \
+            -backend-config="skip_region_validation=true" \
+            -backend-config="skip_metadata_api_check=true" \
+            -backend-config="force_path_style=true"
+
+      # Löscht alle Ressourcen, die im Remote-State gespeichert sind.
+      - name: Destroy infrastructure
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          tofu destroy -auto-approve \
+            -var="zone=${{ vars.EXOSCALE_ZONE }}"

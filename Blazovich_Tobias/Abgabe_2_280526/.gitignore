@@ -1,0 +1,4 @@
+# OpenTofu 
+.terraform/
+*.tfstate 
+*.tfstate.*

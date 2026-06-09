@@ -1,0 +1,67 @@
+#cloud-config
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - nginx
+  - jq
+
+write_files:
+  - path: /usr/local/bin/create-vm-info.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+
+      mkdir -p /var/www/html/api
+
+      PUBLIC_IP=$(curl -s ifconfig.me || hostname -I | awk '{print $1}')
+      HOSTNAME=$(hostname)
+      KERNEL=$(uname -r)
+      OS=$(lsb_release -d | cut -f2)
+      MEMORY=$(free -h | awk '/Mem:/ {print $2}')
+      STORAGE=$(df -h / | awk 'NR==2 {print $2}')
+      FILESYSTEM=$(df -T / | awk 'NR==2 {print $2}')
+      HYPERVISOR=$(systemd-detect-virt || echo "unknown")
+
+      cat > /var/www/html/index.html <<EOF
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>VM Informationen</title>
+      </head>
+      <body>
+        <h1>Technische Details der VM</h1>
+        <ul>
+          <li><strong>Hostname:</strong> $HOSTNAME</li>
+          <li><strong>Public IP:</strong> $PUBLIC_IP</li>
+          <li><strong>Betriebssystem:</strong> $OS</li>
+          <li><strong>Kernel:</strong> $KERNEL</li>
+          <li><strong>Memory:</strong> $MEMORY</li>
+          <li><strong>Storage:</strong> $STORAGE</li>
+          <li><strong>Filesystem:</strong> $FILESYSTEM</li>
+          <li><strong>Hypervisor:</strong> $HYPERVISOR</li>
+        </ul>
+        <p>JSON API: <a href="/api/">/api/</a></p>
+      </body>
+      </html>
+      EOF
+
+      cat > /var/www/html/api/index.html <<EOF
+      {
+        "hostname": "$HOSTNAME",
+        "public_ip": "$PUBLIC_IP",
+        "operating_system": "$OS",
+        "kernel": "$KERNEL",
+        "memory": "$MEMORY",
+        "storage": "$STORAGE",
+        "filesystem": "$FILESYSTEM",
+        "hypervisor": "$HYPERVISOR"
+      }
+      EOF
+
+runcmd:
+  - systemctl enable nginx
+  - systemctl start nginx
+  - /usr/local/bin/create-vm-info.sh

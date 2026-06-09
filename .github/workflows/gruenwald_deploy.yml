@@ -1,0 +1,104 @@
+name: "Deploy Infrastructure"
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      # Securely pulled from the Secrets Vault
+      TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+      TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # Falls back to false if the GitHub variable is empty or does not exist
+      TF_VAR_acme_staging: ${{ vars.ACME_STAGING || 'false' }}
+
+      # Overrides the second level domain, falls back to the default if not set
+      TF_VAR_second_level_domain: ${{ vars.SECOND_LEVEL_DOMAIN || 'gruenwald' }}
+      
+      # Static path constants — update here if the folder structure changes
+      TF_WORKING_DIR: ./Gruenwald_Georg/Abgabe_2_260516
+      TF_STATE_PATH: ./Gruenwald_Georg/Abgabe_2_260516/terraform.tfstate
+      
+      # Fix for the Node.js 20 deprecation warning
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      
+    steps:
+      - uses: actions/checkout@v4
+      - uses: opentofu/setup-opentofu@v1
+      
+     # Initializes providers and validates syntax without touching any real infrastructure.
+      - name: Validate
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          tofu init
+          tofu validate
+
+      # Shows exactly what will be created, changed, or destroyed before any real action is taken.
+      - name: Plan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: tofu plan
+
+      # Applies the planned changes and provisions the actual infrastructure on Exoscale.
+      - name: Apply
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: tofu apply -auto-approve
+      
+      # Save the state file
+      - name: Upload Terraform State
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tofu-state
+          path: ${{ env.TF_STATE_PATH }}
+          retention-days: 5
+
+      # Wait for the software to finish installing
+      - name: Wait for Microservices and SSL
+        shell: bash
+        run: |
+          echo "Waiting for the monitoring dashboard to come online..."
+
+          # Dynamically pull the URLs which are defined in variables.tf
+          # Force Tofu to read the exact state file path
+          STATS_URL=$(tofu output -state=$TF_STATE_PATH -raw stats_url)
+          API_URL=$(tofu output -state=$TF_STATE_PATH -raw api_url)
+
+          # When using the Let's Encrypt staging CA, the certificate is not trusted
+          # by the system. Setup a insecure skips verification so curl returns a real HTTP
+          # status code instead of 000.
+          CURL_OPTS=""
+          if [ "$TF_VAR_acme_staging" = "true" ]; then
+            CURL_OPTS="--insecure"
+            echo "⚠️ Staging CA active — skipping SSL verification."
+          fi
+          
+          # Set a timeout of 10 minutes (600 seconds) so the runner doesn't hang forever if something breaks
+          TIMEOUT=600 
+          ELAPSED=0
+          INTERVAL=15
+
+          # Read the public IP and strip the protocol from the stats URL to use with --resolve,
+          # bypassing DNS propagation delays on the GitHub Actions runner.
+          PUBLIC_IP=$(tofu output -state=$TF_STATE_PATH -raw public_ip)
+          STATS_DOMAIN=$(echo "$STATS_URL" | sed 's|https://||')
+          
+          while [ $ELAPSED -lt $TIMEOUT ]; do
+            # curl the URL and extract ONLY the HTTP status code
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" $CURL_OPTS --resolve "${STATS_DOMAIN}:443:${PUBLIC_IP}" "$STATS_URL" || echo "000")
+            
+            if [ "$STATUS" -eq 200 ] || [ "$STATUS" -eq 302 ]; then
+              echo "✅ SUCCESS: Server is up, Docker is running, and SSL is valid!"
+              echo "🌐 Your applications are ready! Click on the links below:"
+              echo "📊 Stats Dashboard: $STATS_URL"
+              echo "⚙️ API Swagger UI:  $API_URL"
+              exit 0
+            fi
+            
+            echo "⏳ Current status: $STATUS. SSL/Docker still building... waiting 15 seconds."
+            sleep $INTERVAL
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+
+          echo "❌ ERROR: Timeout reached after 10 minutes. The server did not come online."
+          exit 1

@@ -1,0 +1,39 @@
+name: Destroy Exoscale Infrastructure
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: Tuschek_Linda/Abgabe_2_260513
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+
+      - name: Initialize OpenTofu
+        run: tofu init
+
+      - name: Destroy infrastructure
+        run: tofu destroy -auto-approve
+        env:
+          TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      - name: Commit Terraform state after destroy
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add -f terraform.tfstate || true
+          git commit -m "chore: update terraform state after destroy" || echo "No state changes"
+          git push

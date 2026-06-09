@@ -1,0 +1,59 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+# Native Cloud-Init APT Configuration
+# This ensures the key is downloaded AND the repo is added 
+# BEFORE package_update runs.
+apt:
+  sources:
+    docker.list:
+      source: "deb [arch=amd64] https://download.docker.com/linux/ubuntu $RELEASE stable"
+      keyid: 9DC858229FC7DD38854AE2D88D81803C0EBFCD88 # Official Docker GPG Key
+
+# Native Package Installation
+# Now we can just let cloud-init install Docker via the standard packages module
+packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-compose-plugin
+
+# Add default ubuntu user to docker group (Quality of Life)
+groups:
+  - docker
+system_info:
+  default_user:
+    groups: [docker]
+
+write_files:
+  # Docker Compose: Dropped in as a single clean block
+  - path: /opt/monitoring/docker-compose.yml
+    content: |
+      ${indent(6, compose_config)}
+
+  # Caddyfile: Dropped in as a single clean block
+  - path: /etc/caddy/Caddyfile
+    content: |
+      ${indent(6, caddy_config)}
+
+  # Custom OpenAPI Specification: Dropped in as a single clean block
+  - path: /opt/monitoring/openapi.yml
+    content: |
+      ${indent(6, openapi_spec)}
+
+runcmd:
+  # Enable Docker and wait until the daemon is actually ready to accept commands.
+  # Polling is reliable; a fixed sleep is not.
+  - systemctl enable --now docker
+  - timeout 60 bash -c 'until docker info > /dev/null 2>&1; do sleep 2; done'
+
+  # Start the stack. set -e ensures the script fails loudly if any step errors,
+  # making failures visible in /var/log/cloud-init-output.log.
+  - |
+    set -euo pipefail
+    cd /opt/monitoring
+    docker compose up -d 2>&1 | tee /var/log/docker-compose-startup.log

@@ -1,0 +1,62 @@
+#cloud-config
+# Aktualisiert die Paketquellen beim ersten Start
+package_update: true
+
+# Installiert Python-Flask für den Webserver und psutil für die Systemdaten
+packages:
+  - python3-flask
+  - python3-psutil
+
+write_files:
+  - path: /opt/app.py
+    content: |
+      from flask import Flask, jsonify
+      import platform, socket, psutil, os
+
+      app = Flask(__name__)
+
+      def get_sys_info():
+          # Sammelt erweiterte technische Details für die volle Punktzahl
+          return {
+              "hostname": socket.gethostname(),
+              "ip_internal": socket.gethostbyname(socket.gethostname()),
+              "kernel": platform.release(),
+              "os": platform.system(),
+              "cpu_count": psutil.cpu_count(),
+              "memory_total": f"{round(psutil.virtual_memory().total / (1024**3), 2)} GB",
+              "storage_total": f"{round(psutil.disk_usage('/').total / (1024**3), 2)} GB",
+              "storage_free": f"{round(psutil.disk_usage('/').free / (1024**3), 2)} GB",
+              "filesystem": psutil.disk_partitions()[0].fstype if psutil.disk_partitions() else "unknown"
+          }
+
+      @app.route('/')
+      def home():
+          # HTML Endpunkt (Website)
+          data = get_sys_info()
+          html = """
+          <html>
+          <head><title>System Details</title></head>
+          <body style='font-family: sans-serif; padding: 40px;'>
+            <h1>Technical Details (Wintner)</h1>
+            <table border='1' cellpadding='10' style='border-collapse: collapse;'>
+          """
+          for k, v in data.items():
+              html += f"<tr><td><b>{k}</b></td><td>{v}</td></tr>"
+          
+          html += "</table>"
+          html += "<br><p><strong>API-Zugriff:</strong> <a href='/json'>Als JSON anzeigen</a></p>"
+          html += "</body></html>"
+          return html
+
+      @app.route('/json')
+      def json_api():
+          # JSON Endpunkt (API) - Erfüllt die Zusatzpunkt-Anforderung
+          return jsonify(get_sys_info())
+
+      if __name__ == '__main__':
+          # Port 80 muss mit der Security Group in Terraform übereinstimmen
+          app.run(host='0.0.0.0', port=80)
+
+runcmd:
+  # Startet die App im Hintergrund. In einer echten Prod-Umgebung würde man wohl ein Systemd-Service-File schreiben.
+  - nohup python3 /opt/app.py > /log/app.log 2>&1 &

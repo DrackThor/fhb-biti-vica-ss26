@@ -1,0 +1,42 @@
+name: "Terraform Destroy"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  terraform:
+    name: "Terraform Destroy"
+    runs-on: ubuntu-latest
+
+    env:
+      TF_VAR_exoscale_key: ${{ secrets.EXOSCALE_KEY }}
+      TF_VAR_exoscale_secret: ${{ secrets.EXOSCALE_SECRET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+    defaults:
+      run:
+        working-directory: ./Jovic_David/Abgabe_2_260607
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.5"
+          terraform_wrapper: false
+
+      - name: Vorab-Check (Dateien auflisten)
+        run: |
+          echo "Aktuelles Verzeichnis:"
+          pwd
+          echo "Inhalt des Verzeichnisses:"
+          ls -la
+
+      - name: Terraform Init 
+        run: terraform init -input=false -reconfigure
+
+      - name: Terraform Destroy
+        run: terraform apply -destroy -auto-approve -input=false

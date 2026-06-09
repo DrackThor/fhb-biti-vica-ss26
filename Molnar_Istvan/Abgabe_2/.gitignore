@@ -1,0 +1,41 @@
+# =============================================================================
+# .gitignore – Dateien die NICHT ins Repository gehören
+# =============================================================================
+
+# Terraform State-Dateien (enthalten sensible Infrastruktur-Infos)
+*.tfstate
+*.tfstate.backup
+*.tfstate.lock.info
+.terraform/
+.terraform.lock.hcl
+
+# Lokale Variablen-Datei mit echten Credentials
+terraform.tfvars
+
+# Terraform Plan-Dateien (binär, enthält State-Snapshot)
+tfplan
+*.tfplan
+
+# Crash-Logs
+crash.log
+crash.*.log
+
+# Override-Dateien (lokale Entwicklungsanpassungen)
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+
+# Editor-spezifisch
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store

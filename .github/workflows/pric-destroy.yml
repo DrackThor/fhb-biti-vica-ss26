@@ -1,0 +1,30 @@
+name: "Destroy Infrastruktur"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./Prieller_Christian/Abgabe_2/terraform
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: abgabe-2-prieller
+
+      - uses: opentofu/setup-opentofu@v1
+
+      - name: Terraform Init
+        run: tofu init
+
+      - name: Terraform Destroy
+        run: tofu destroy -auto-approve
+        env:
+          TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}

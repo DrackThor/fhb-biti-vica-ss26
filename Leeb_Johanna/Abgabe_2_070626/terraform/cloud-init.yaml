@@ -1,0 +1,57 @@
+#cloud-config
+
+# Systempakete aktualisieren und benötigte Tools installieren
+package_update: true
+package_upgrade: true
+packages:
+  - curl        # Wird benötigt, um die eigene öffentliche IP abzufragen
+  - util-linux  # Enthält grundlegende System-Tools
+
+# Skript zur Sammlung der relevanten Systemdaten
+write_files:
+  - path: /usr/local/bin/generate-sysinfo.sh
+    permissions: '0755' # Berchtigungen anpassen, damit das Skript ausführbar ist
+    content: |
+      #!/bin/bash
+      # Dieses Skript sammelt die technischen Details der VM und speichert sie als HTML
+
+      mkdir -p /var/www/html # Zielordner für die Webseite erstellen, falls noch nicht vorhanden
+      
+      # HTML-Datei mit Systemdaten befüllen
+      cat <<EOF > /var/www/html/index.html
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <meta charset="utf-8">
+          <title>Exoscale VM - Technische Details</title>
+          <style>
+              body { font-family: Arial, sans-serif; margin: 40px; background-color: #f4f4f9; color: #333; }
+              h1 { color: #0056b3; border-bottom: 2px solid #0056b3; padding-bottom: 10px; }
+              pre { background: #fff; padding: 20px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; line-height: 1.5; }
+          </style>
+      </head>
+      <body>
+          <h1>Technische Details der Exoscale VM</h1>
+          <pre>
+      <strong>Betriebssystem:</strong>    $(hostnamectl | grep "Operating System" | cut -d: -f2- | xargs)
+      <strong>Kernel-Typ:</strong>        $(uname -r)
+      <strong>Hypervisor:</strong>        $(systemd-detect-virt)
+      <strong>Öffentliche IP:</strong>    $(curl -s ifconfig.me)
+      <strong>Arbeitsspeicher:</strong>   $(free -h | awk '/^Mem:/ {print $2 " gesamt, " $3 " genutzt, " $4 " frei"}')
+      <strong>Speicherplatz:</strong>     $(df -h / | awk '/\// {print $2 " gesamt (Verfügbar: " $4 ")"}')
+      <strong>Dateisysteme:</strong>
+      $(df -Th | grep -E '^/dev')
+          </pre>
+          <p><em>Zuletzt aktualisiert: $(date)</em></p>
+      </body>
+      </html>
+      EOF
+
+# Befehle ausführen, um das Skript zu starten und den Webserver bereitzustellen
+runcmd:
+  - /usr/local/bin/generate-sysinfo.sh   # Skript ausführen, um die erste index.html zu generieren
+  - cd /var/www/html   # In das Web-Verzeichnis wechseln
+  
+  # Einen einfachen Python-Webserver im Hintergrund auf Port 80 starten.
+  # "nohup" sorgt dafür, dass der Server weiterläuft, wenn Cloud-Init fertig ist.
+  - nohup python3 -m http.server 80 > /dev/null 2>&1 &

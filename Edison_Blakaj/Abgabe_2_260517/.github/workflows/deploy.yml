@@ -1,0 +1,74 @@
+name: Deploy Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      zone:
+        description: "Exoscale zone"
+        required: false
+        default: "at-vie-1"
+      instance_type:
+        description: "Instance type"
+        required: false
+        default: "standard.micro"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.8.0"
+
+      - name: Restore Terraform state
+        uses: actions/cache@v4
+        with:
+          path: Abgabe_2_260517/terraform/terraform.tfstate
+          key: tfstate-${{ github.ref_name }}
+          restore-keys: tfstate-
+
+      - name: Init
+        working-directory: Abgabe_2_260517/terraform
+        env:
+          EXOSCALE_API_KEY:    ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+        run: tofu init
+
+      - name: Plan
+        working-directory: Abgabe_2_260517/terraform
+        env:
+          EXOSCALE_API_KEY:    ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+        run: |
+          tofu plan \
+            -var="zone=${{ github.event.inputs.zone }}" \
+            -var="instance_type=${{ github.event.inputs.instance_type }}" \
+            -out=tfplan
+
+      - name: Apply
+        working-directory: Abgabe_2_260517/terraform
+        env:
+          EXOSCALE_API_KEY:    ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+        run: tofu apply -auto-approve tfplan
+
+      - name: Show outputs
+        working-directory: Abgabe_2_260517/terraform
+        env:
+          EXOSCALE_API_KEY:    ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+        run: tofu output
+
+      - name: Save Terraform state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: Abgabe_2_260517/terraform/terraform.tfstate
+          key: tfstate-${{ github.ref_name }}

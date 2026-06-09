@@ -1,0 +1,42 @@
+name: Abgabe2 - Infrastruktur loeschen   # erscheint im "Actions"-Menue
+
+# Nur manuell ausloesbar.
+on:
+  workflow_dispatch:
+
+env:
+  ZONE: at-vie-1
+  TF_WORKDIR: Habel_Michael/Abgabe_2_260606/terraform
+  TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET || 'fhb-biti-vica-ss26-abgabe2-tfstate' }}
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    env:
+      EXOSCALE_API_KEY: ${{ secrets.EXOSCALE_API_KEY }}
+      EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.EXOSCALE_API_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.EXOSCALE_API_SECRET }}
+      AWS_DEFAULT_REGION: at-vie-1
+      # Muss zum Create-Lauf passen, damit der State konsistent ist.
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: OpenTofu installieren
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.9.0"
+
+      - name: OpenTofu init (vorhandenen Remote-State laden)
+        working-directory: ${{ env.TF_WORKDIR }}
+        run: tofu init -input=false -backend-config="bucket=${TF_STATE_BUCKET}"
+
+      - name: OpenTofu destroy
+        working-directory: ${{ env.TF_WORKDIR }}
+        run: tofu destroy -input=false -auto-approve -var="zone=${ZONE}"
+
+      - name: Bestaetigung in die Job-Zusammenfassung schreiben
+        run: echo "## Infrastruktur geloescht :wastebasket:" >> "$GITHUB_STEP_SUMMARY"

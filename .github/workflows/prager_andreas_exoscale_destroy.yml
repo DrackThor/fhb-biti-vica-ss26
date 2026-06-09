@@ -1,0 +1,38 @@
+name: Andreas Prager - Terraform Exoscale Destroy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  terraform-destroy:
+    name: Terraform Destroy
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: Prager_Andreas/Abgabe_2_260511/terraform
+
+    env:
+      TF_HTTP_USERNAME: ${{ secrets.GITLAB_USERNAME }}
+      TF_HTTP_PASSWORD: ${{ secrets.GITLAB_TOKEN }}
+      TF_HTTP_ADDRESS: https://gitlab.com/api/v4/projects/${{ secrets.GITLAB_PROJECT_ID }}/terraform/state/default
+      TF_HTTP_LOCK_ADDRESS: https://gitlab.com/api/v4/projects/${{ secrets.GITLAB_PROJECT_ID }}/terraform/state/default/lock
+      TF_HTTP_UNLOCK_ADDRESS: https://gitlab.com/api/v4/projects/${{ secrets.GITLAB_PROJECT_ID }}/terraform/state/default/lock
+      TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+      TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_version: 1.11.7
+
+      - name: OpenTofu Init
+        run: tofu init
+
+      - name: OpenTofu Destroy
+        run: tofu destroy -auto-approve
