@@ -1,0 +1,109 @@
+# =============================================================================
+# deploy.yml – GitHub Actions Workflow: Exoscale Infrastruktur erstellen
+#
+# Wird ausgelöst durch:
+#   - Manuell über "Run workflow" im GitHub UI (workflow_dispatch)
+#   - Push auf den main-Branch (optional, auskommentiert)
+#
+# Voraussetzungen (GitHub Secrets müssen gesetzt sein):
+#   EXOSCALE_API_KEY     → Exoscale API Key
+#   EXOSCALE_API_SECRET  → Exoscale API Secret
+#   SSH_PUBLIC_KEY       → Öffentlicher SSH-Schlüssel (für VM-Zugriff)
+# =============================================================================
+
+name:  Infrastruktur erstellen
+
+on:
+  # Manueller Trigger mit optionalem Eingabefeld
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Bestätigung: 'yes' eingeben um zu deployen"
+        required: true
+        default: "no"
+
+  # Automatisch bei Push auf main (optional aktivieren)
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - 'Abgabe_2_260607/terraform/**'
+
+jobs:
+  terraform-apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+
+    # Nur ausführen wenn Bestätigung "yes" eingegeben wurde
+    if: ${{ github.event.inputs.confirm == 'yes' || github.event_name == 'push' }}
+
+    # Berechtigungen: GitHub kann den Job-Status lesen (für Summary)
+    permissions:
+      contents: read
+
+    # Arbeitsverzeichnis für alle run-Steps
+    defaults:
+      run:
+        working-directory: Hollerer_Jasmin/Abgabe_2_260607/terraform
+
+    steps:
+      # 1. Repository auschecken
+      - name:  Repository auschecken
+        uses: actions/checkout@v4
+
+      # 2. Terraform installieren (openTofu wäre Alternative: setup-opentofu)
+      - name:  Terraform installieren
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.x"
+
+      # 3. Terraform initialisieren (Provider herunterladen)
+      - name:  Terraform init
+        run: terraform init
+        env:
+          # Exoscale Credentials für Provider-Download (falls nötig)
+          TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # 4. Terraform Plan (zeigt was erstellt wird, ohne tatsächlich zu erstellen)
+      - name:  Terraform plan
+        run: terraform plan -out=tfplan
+        env:
+          TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+
+      # 5. Terraform Apply (Infrastruktur tatsächlich erstellen)
+      - name:  Terraform apply
+        run: terraform apply -auto-approve tfplan
+        env:
+          TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+
+      # 6. Outputs anzeigen und in Job-Summary schreiben
+      - name:  Outputs anzeigen
+        run: |
+          echo "##  Deployment erfolgreich!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Endpunkt | URL |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-----|" >> $GITHUB_STEP_SUMMARY
+          echo "|  HTML  | $(terraform output -raw html_endpoint) |" >> $GITHUB_STEP_SUMMARY
+          echo "|  API   | $(terraform output -raw json_endpoint) |" >> $GITHUB_STEP_SUMMARY
+          echo "|  IP    | $(terraform output -raw vm_public_ip) |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo ">  CloudInit benötigt ca. 2-3 Minuten nach VM-Start." >> $GITHUB_STEP_SUMMARY
+        env:
+          TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+
+      # 7. Terraform State als Artifact speichern
+      #    WICHTIG: In der Realität sollte der State in einem Remote Backend
+      #    (z.B. S3/Exoscale Object Storage) gespeichert werden!
+      - name:  Terraform State speichern
+        uses: actions/upload-artifact@v4
+        if: always() # Auch bei Fehler speichern
+        with:
+          name: terraform-state
+          path: Hollerer_Jasmin/Abgabe_2_260607/terraform/terraform.tfstate
+          retention-days: 30

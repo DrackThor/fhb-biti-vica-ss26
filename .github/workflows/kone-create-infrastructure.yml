@@ -1,0 +1,45 @@
+name: Create Exoscale Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      ssh_public_key:
+        description: "Optionaler SSH Public Key für Debugging-Zugriff"
+        required: false
+        default: ""
+
+      zone:
+        description: "Exoscale Zone"
+        required: true
+        default: "at-vie-1"
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: Abgabe_2_eda_konakci/terraform
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.8.0"
+
+      - name: OpenTofu init
+        run: tofu init
+
+      - name: OpenTofu apply
+        run: |
+          tofu apply -auto-approve \
+            -var="exoscale_api_key=${{ secrets.EXOSCALE_API_KEY }}" \
+            -var="exoscale_api_secret=${{ secrets.EXOSCALE_API_SECRET }}" \
+            -var="ssh_public_key=${{ github.event.inputs.ssh_public_key }}"
+            -var="zone=${{ github.event.inputs.zone }}"
+
+      - name: Show OpenTofu outputs
+        run: tofu output

@@ -1,0 +1,69 @@
+# GitHub Workflow: Infrastruktur löschen (Destroy)
+# Führt terraform destroy aus, um die Exoscale VM zu entfernen
+# Nur manueller Trigger zur versehentlichen Verhinderung
+
+name: "Destroy Infrastructure"
+
+on:
+  # Nur manueller Trigger (Sicherheitsmechanismus)
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Zerstörung bestätigen (tippe "destroy" ein)'
+        required: true
+        type: string
+
+# Nur ein gleichzeitiger Workflow erlaubt
+concurrency:
+  group: destroy-infrastructure
+  cancel-in-progress: false
+
+jobs:
+  # ============================================================
+  # Job: Terraform Destroy
+  # ============================================================
+  destroy:
+    name: "Terraform Destroy"
+    runs-on: ubuntu-latest
+    # Nur ausführen wenn Bestätigung eingegeben wurde
+    if: github.event.inputs.confirm == 'destroy'
+    defaults:
+      run:
+        working-directory: terraform
+
+    steps:
+      # Repository auschecken
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # OpenTofu/Terraform installieren
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+          terraform_wrapper: false
+
+      # Terraform State aus Artifact herunterladen
+      - name: Download Terraform State
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          name: terraform-state
+          path: terraform/
+          workflow: deploy.yml
+          if_no_artifact_found: warn
+
+      # Terraform initialisieren
+      - name: Terraform Init
+        run: terraform init
+
+      # Terraform Destroy ausführen
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve -input=false
+        env:
+          TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+
+      # Bestätigung ausgeben
+      - name: Confirmation
+        run: echo "Infrastruktur erfolgreich zerstört!"

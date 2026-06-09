@@ -1,0 +1,89 @@
+openapi: 3.0.3
+info:
+  title: Exoscale VM Monitoring API
+  description: |
+    ### Hochschule Burgenland Virtualization & Cloud Technologies SS26 Assignment 2
+    This API provides real-time technical telemetry for the deployed Exoscale Virtual Machine. 
+    It acts as a lightweight wrapper around the native Netdata backend, exposing only the critical 
+    endpoints required for infrastructure validation.
+  version: 1.0.0
+  contact:
+    name: Georg Grünwald
+
+servers:
+  - url: https://${stats_domain}
+    description: Live Exoscale VM Metrics
+
+paths:
+  /api/v1/info:
+    get:
+      summary: Get Host System Details
+      description: Returns static hardware and operating system information about the underlying virtual machine.
+      tags:
+        - System Architecture
+      responses:
+        '200':
+          description: Successful retrieval of system information.
+
+  /api/v1/data:
+    get:
+      summary: Get Live Telemetry (Host & Containers)
+      description: |
+        Netdata routes all metric queries through this single `/data` endpoint. Select a specific chart below to isolate host or container metrics.
+        
+        **Host System Charts:**
+        * `system.cpu` - Total VM CPU Usage
+        * `system.ram` - Total VM RAM Usage
+        
+        **Docker Container Charts (cgroups):**
+        * `cgroup_netdata.cpu` / `.mem`
+        * `cgroup_caddy.cpu` / `.mem`
+        * `cgroup_swagger-ui.cpu` / `.mem`
+      tags:
+        - Live Telemetry
+      parameters:
+        - in: query
+          name: chart
+          required: true
+          description: The specific metric ID to pull from the backend.
+          schema:
+            type: string
+            enum:
+              # Host Metrics
+              - system.cpu       # Avg CPU per Node
+              - system.ram       # Avg Used RAM per Node
+              - system.io        # Total Disk Reads/Writes
+              - system.net       # Total Network Inbound/Outbound
+              - system.load      # Avg System Load (1 min)
+              - disk.space       # Powers Disk Usage capacity metrics
+              # Container Metrics
+              - cgroup_netdata.cpu
+              - cgroup_netdata.mem
+              - cgroup_caddy.cpu
+              - cgroup_caddy.mem
+              - cgroup_swagger-ui.cpu
+              - cgroup_swagger-ui.mem
+            default: system.cpu
+        - in: query
+          name: after
+          required: false
+          description: The time window to query. Use -1 to fetch the absolute latest live metric from the past second.
+          schema:
+            type: integer
+            default: -1
+        - in: query
+          name: points
+          required: false
+          description: Number of data points to return.
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: format
+          required: false
+          schema:
+            type: string
+            default: json
+      responses:
+        '200':
+          description: Successful retrieval of metric data.

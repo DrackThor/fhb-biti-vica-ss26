@@ -1,0 +1,53 @@
+#cloud-config
+
+package_update: true
+
+packages:
+  - apache2
+  - curl
+
+write_files:
+  - path: /usr/local/bin/create-info.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+
+      PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 || hostname -I | awk '{print $1}')
+      KERNEL=$(uname -r)
+      MEMORY=$(free -h | awk '/Mem:/ {print $2}')
+      STORAGE=$(df -h / | awk 'NR==2 {print $2}')
+      FILESYSTEM=$(df -T / | awk 'NR==2 {print $2}')
+      HYPERVISOR=$(systemd-detect-virt)
+
+      cat > /var/www/html/index.html <<EOF
+      <html>
+      <head><title>Exoscale VM Informationen</title></head>
+      <body>
+        <h1>Virtualisierung Abgabe 2</h1>
+        <h2>Technische Informationen der VM</h2>
+        <p><b>Public IP:</b> $PUBLIC_IP</p>
+        <p><b>Kernel:</b> $KERNEL</p>
+        <p><b>Memory:</b> $MEMORY</p>
+        <p><b>Storage:</b> $STORAGE</p>
+        <p><b>Filesystem:</b> $FILESYSTEM</p>
+        <p><b>Hypervisor:</b> $HYPERVISOR</p>
+      </body>
+      </html>
+      EOF
+
+      cat > /var/www/html/api <<EOF
+      {
+        "public_ip": "$PUBLIC_IP",
+        "kernel": "$KERNEL",
+        "memory": "$MEMORY",
+        "storage": "$STORAGE",
+        "filesystem": "$FILESYSTEM",
+        "hypervisor": "$HYPERVISOR"
+      }
+      EOF
+
+runcmd:
+  - systemctl enable apache2
+  - systemctl start apache2
+  - /usr/local/bin/create-info.sh
+  - systemctl restart apache2

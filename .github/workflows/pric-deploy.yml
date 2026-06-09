@@ -1,0 +1,48 @@
+name: "Deploy Infrastruktur"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./Prieller_Christian/Abgabe_2/terraform
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: abgabe-2-prieller
+
+      - uses: opentofu/setup-opentofu@v1
+
+      - name: Terraform Init
+        run: tofu init
+
+      - name: Terraform Apply
+        run: tofu apply -auto-approve
+        env:
+          TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      - name: Outputs anzeigen
+        run: tofu output -no-color
+
+      - name: State speichern
+        run: |
+          cd $GITHUB_WORKSPACE
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add -f Prieller_Christian/Abgabe_2/terraform/terraform.tfstate
+          git diff --cached --quiet || git commit -m "terraform state aktualisiert"
+          git push
+
+      - name: Upload State als Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-state
+          path: ./Prieller_Christian/Abgabe_2/terraform/terraform.tfstate

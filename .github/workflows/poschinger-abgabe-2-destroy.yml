@@ -1,0 +1,42 @@
+name: Poschinger Abgabe 2 - Destroy Infrastructure
+
+on:
+  workflow_dispatch:
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+
+    # Diese Umgebungsvariablen stehen allen tofu-Befehlen zur Verfügung.
+    env:
+      # Zugangsdaten für den Exoscale Provider.
+      EXOSCALE_API_KEY: ${{ secrets.EXOSCALE_API_KEY }}
+      EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # SSH Public Key wird auch beim Destroy benötigt, weil die Variable in der Konfiguration definiert ist.
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+
+      # Zugangsdaten für das S3-kompatible Remote-State-Backend.
+      AWS_ACCESS_KEY_ID: ${{ secrets.EXOSCALE_API_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.EXOSCALE_API_SECRET }}
+
+    defaults:
+      run:
+        working-directory: Poschinger_Alexander/Abgabe_2_260607
+
+    steps:
+      # Holt den aktuellen Repository-Code in den GitHub Runner.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Installiert OpenTofu auf dem GitHub Runner.
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+
+      # Initialisiert OpenTofu und lädt den Remote State.
+      - name: Init OpenTofu
+        run: tofu init
+
+      # Löscht die im Remote State gespeicherte Exoscale Infrastruktur.
+      - name: Destroy infrastructure
+        run: tofu destroy -auto-approve

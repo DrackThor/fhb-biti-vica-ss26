@@ -1,0 +1,111 @@
+#cloud-config
+package_update: true
+package_upgrade: false
+
+packages:
+  - nginx
+
+write_files:
+  - path: /usr/local/bin/sysinfo.sh
+    owner: root:root
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # 1. System-Informationen auslesen
+      IP_ADDR=$(hostname -I | awk '{print $1}')
+      RAM_TOTAL=$(free -h | awk '/^Mem:/ {print $2}')
+      RAM_USED=$(free -h | awk '/^Mem:/ {print $3}')
+      CPU_INFO=$(lscpu | grep 'Model name' | cut -d: -f2 | sed 's/^[ \t]*//')
+      
+      # Falls CPU Modellname leer ist, Fallback nutzen
+      if [ -z "$CPU_INFO" ]; then
+          CPU_INFO=$(lscpu | grep 'Vendor ID' | cut -d: -f2 | sed 's/^[ \t]*//')
+      fi
+      
+      CPU_CORES=$(nproc)
+      TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+      KERNEL_TYPE=$(uname -sr)
+      HYPERVISOR=$(systemd-detect-virt 2>/dev/null || echo "KVM (Exoscale default)")
+      DISK_TOTAL=$(df -h / | awk 'NR==2 {print $2}')
+      DISK_USED=$(df -h / | awk 'NR==2 {print $3}')
+      DISK_FREE=$(df -h / | awk 'NR==2 {print $4}')
+      FILESYSTEM=$(df -T / | awk 'NR==2 {print $2}')
+
+      # 2.HTML
+      cat <<EOF > /var/www/html/index.html
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <title>Exoscale VM Dashboard</title>
+          <style>
+              body { font-family: 'Segoe UI', Arial, sans-serif; margin: 40px; background: #f4f6f9; color: #333; }
+              .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); max-width: 600px; margin: auto; }
+              h1 { color: #0056b3; margin-top: 0; border-bottom: 2px solid #f0f2f5; padding-bottom: 10px; }
+              h2 { color: #555; font-size: 1.2em; margin-top: 20px; }
+              .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+              .info { background: #f8f9fa; padding: 10px; border-radius: 6px; border-left: 4px solid #0056b3; }
+              strong { color: #111; display: block; font-size: 0.9em; text-transform: uppercase; margin-bottom: 2px; }
+              .api-btn { display: block; text-align: center; margin-top: 25px; padding: 12px; background: #28a745; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; }
+              .api-btn:hover { background: #218838; }
+          </style>
+      </head>
+      <body>
+          <div class="card">
+              <h1>Exoscale VM Status-Dashboard</h1>
+              
+              <h2>Compute & OS Details</h2>
+              <div class="grid">
+                  <div class="info"><strong>IP-Adresse</strong> ${IP_ADDR}</div>
+                  <div class="info"><strong>CPU Modell & Kerne</strong> ${CPU_INFO} (${CPU_CORES} Cores)</div>
+                  <div class="info"><strong>Kernel Typ</strong> ${KERNEL_TYPE}</div>
+                  <div class="info"><strong>Hypervisor</strong> ${HYPERVISOR}</div>
+              </div>
+
+              <h2>Speicher & Filesystem</h2>
+              <div class="grid">
+                  <div class="info"><strong>RAM (Genutzt / Gesamt)</strong> ${RAM_USED} / ${RAM_TOTAL}</div>
+                  <div class="info"><strong>Storage (Genutzt / Gesamt)</strong> ${DISK_USED} / ${DISK_TOTAL} (${DISK_FREE} frei)</div>
+                  <div class="info"><strong>Filesystem Typ</strong> ${FILESYSTEM}</div>
+                  <div class="info"><strong>Letzter Check</strong> ${TIMESTAMP}</div>
+              </div>
+
+              <a href="/api.json" class="api-btn" target="_blank">Vollstaendige JSON-API aufrufen</a>
+          </div>
+      </body>
+      </html>
+      EOF
+
+      # 3. JSON 
+      cat <<EOF > /var/www/html/api.json
+      {
+        "status": "online",
+        "timestamp": "${TIMESTAMP}",
+        "infrastructure": {
+          "hypervisor": "${HYPERVISOR}",
+          "kernel_release": "${KERNEL_TYPE}"
+        },
+        "hardware": {
+          "ip_address": "${IP_ADDR}",
+          "cpu": {
+            "model": "${CPU_INFO}",
+            "cores": ${CPU_CORES}
+          },
+          "memory": {
+            "total": "${RAM_TOTAL}",
+            "used": "${RAM_USED}"
+          },
+          "storage": {
+            "total": "${DISK_TOTAL}",
+            "used": "${DISK_USED}",
+            "free": "${DISK_FREE}",
+            "filesystem_type": "${FILESYSTEM}"
+          }
+        }
+      }
+      EOF
+
+runcmd:
+  - /usr/local/bin/sysinfo.sh
+  - systemctl enable nginx
+  - systemctl restart nginx

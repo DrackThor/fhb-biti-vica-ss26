@@ -1,21 +1,9 @@
-﻿# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
-venv/
-
-# Terraform
-.terraform/
+*.tfvars
 *.tfstate
-*.tfstate.*
-*.tfplan
-tfplan
-
-# IDEs
-.vscode/
+*.tfstate.lock.info
+.terraform/
+*.tfstate.backup
+.vs/
 .idea/
-
-# OS
-.DS_Store
-Thumbs.db
+.devenv/
+.direnv/

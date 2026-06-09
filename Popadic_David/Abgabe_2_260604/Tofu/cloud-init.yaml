@@ -1,0 +1,40 @@
+# CloudInit Konfiguration für die automatische Einrichtung der VM
+#cloud-config
+
+# Aktualisiert die Paketlisten beim ersten Start
+package_update: true
+
+# Installiert den nginx Webserver
+packages:
+  - nginx
+
+# Erstellt die HTML-Datei mit den technischen VM-Informationen
+write_files:
+  - path: /var/www/html/index.html
+    content: |
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <title>VM Informationen</title>
+      </head>
+      <body>
+          <h1>Exoscale VM Informationen</h1>
+
+          <p><b>Hostname:</b> david-vm</p>
+          <p><b>Betriebssystem:</b> Ubuntu 24.04 LTS</p>
+          <p><b>RAM:</b> 2 GB</p>
+          <p><b>CPU:</b> 2 vCPU</p>
+          <p><b>Storage:</b> 10 GB</p>
+          <p><b>Zone:</b> AT-VIE-1</p>
+          <p><b>Hypervisor:</b> KVM</p>
+
+      </body>
+      </html>
+
+# Führt Befehle nach dem ersten Start der VM aus
+runcmd:
+  # Aktiviert nginx beim Systemstart
+  - systemctl enable nginx
+
+  # Startet bzw. lädt nginx neu
+  - systemctl restart nginx

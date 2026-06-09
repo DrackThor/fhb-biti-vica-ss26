@@ -1,0 +1,74 @@
+name: "pmen753 - deployen"
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  terraform-deploy:
+    name: "Terraform Apply"
+    runs-on: ubuntu-latest
+
+    env:
+      EXOSCALE_API_KEY: ${{ secrets.EXOSCALE_API_KEY }}
+      EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+      EXOSCALE_CONFIG: ""
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5      
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: terraform init -reconfigure
+        working-directory: ./Menghini_Patrick/Abgabe_2_300526/terraform
+
+      - name: Terraform Plan
+        run: terraform plan
+        working-directory: ./Menghini_Patrick/Abgabe_2_300526/terraform
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
+        working-directory: ./Menghini_Patrick/Abgabe_2_300526/terraform
+
+      - name: Show VM URL
+        run: |
+          echo "============================================"
+          echo "  Deployment erfolgreich!"
+          echo "============================================"
+          echo ""
+          echo "VM URL: $(terraform output -raw vm_url)"
+          echo ""
+          echo "Hinweis: Cloud-Init braucht ca. 2-3 Minuten."
+        working-directory: ./Menghini_Patrick/Abgabe_2_300526/terraform
+
+      - name: Commit & Push Terraform State
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add ./Menghini_Patrick/Abgabe_2_300526/terraform/terraform.tfstate
+          git commit -m "State-Update: VM erfolgreich erstellt [skip ci]" || echo "Keine Aenderungen am State"
+          git push
+
+      - name: Endpunkt testen
+        working-directory: ./Menghini_Patrick/Abgabe_2_300526/terraform
+        run: |
+          URL=$(terraform output -raw vm_url)
+          echo "Warte 120 Sekunden auf Cloud-Init..."
+          sleep 120
+          for i in $(seq 1 10); do
+            echo "Versuch $i/10: Teste $URL ..."
+            if curl -sk --max-time 10 "$URL" | grep -q "Technische Details"; then
+              echo "Endpunkt ist erreichbar!"
+              exit 0
+            fi
+            echo "Noch nicht bereit, warte 20 Sekunden..."
+            sleep 20
+          done
+          echo "WARNUNG: Endpunkt nach 10 Versuchen nicht erreichbar."
+          exit 0

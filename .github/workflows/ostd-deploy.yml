@@ -1,0 +1,53 @@
+
+# Name of the workflow in GitHub Actions
+name: Deploy Exoscale Infrastructure
+
+# Trigger the workflow manually from the GitHub Actions tab
+on:
+  workflow_dispatch:
+  
+
+# Define the jobs to be run in this workflow
+jobs:
+  # Name of the job - chosen to be 'deploy'
+  deploy:
+    # GitHub starts a VM with the latest Ubuntu image to run this job
+    runs-on: ubuntu-latest
+
+    # Environment variables for Terraform, using secrets stored in GitHub for security
+    # TF_VAR is linked to Terraform variables to be written with equivalent names in the Terraform configuration files and on GitHub secrets
+    env:
+      TF_VAR_exoscale_key: ${{ secrets.EXOSCALE_API_KEY }}
+      TF_VAR_exoscale_secret: ${{ secrets.EXOSCALE_SECRET_KEY }}
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+      TF_TOKEN_app_terraform_io: ${{ secrets.TF_API_TOKEN }}
+
+    # Set the default working directory for all steps in this job to the specified path
+    # Important because the Terraform configuration files are located in this directory, seen from the root of the repository
+    defaults:
+      run:
+        working-directory: Ostermayer_Dominik/Abgabe_2_14052026
+
+    # Define the sequence of steps to be executed in this job
+    steps:
+        # First step: Check out the repository and load files into Runner VM
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        # Install Terraform using the official HashiCorp action on the Runner VM
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        # Initialize Terraform, which will download the necessary provider plugins and set up the backend if configured
+      - name: Terraform init
+        run: terraform init
+        # Check the formatting of Terraform files to ensure they follow the standard style, and fail if they do not
+      - name: Terraform fmt check
+        run: terraform fmt -check
+        # Validate the Terraform configuration files to ensure they are syntactically correct and internally consistent
+      - name: Terraform validate
+        run: terraform validate
+        # Generate and show an execution plan for Terraform, which will indicate what actions will be taken when applying the configuration
+      - name: Terraform plan
+        run: terraform plan
+        # Apply the Terraform configuration, which will create, update, or delete resources as defined in the configuration files, without asking for confirmation due to the -auto-approve flag
+      - name: Terraform apply
+        run: terraform apply -auto-approve
