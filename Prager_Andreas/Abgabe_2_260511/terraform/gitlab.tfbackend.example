@@ -1,0 +1,6 @@
+username = "{GITLAB_USERNAME}"
+password = " {GITLAB_TOKEN}"
+
+address        = "https://gitlab.com/api/v4/projects/{PROJECT_ID}/terraform/state/default"
+lock_address   = "https://gitlab.com/api/v4/projects/{PROJECT_ID}/terraform/state/default/lock"
+unlock_address = "https://gitlab.com/api/v4/projects/{PROJECT_ID}/terraform/state/default/lock"

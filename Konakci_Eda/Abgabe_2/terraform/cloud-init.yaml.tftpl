@@ -1,0 +1,250 @@
+#cloud-config
+# Cloud-Init wird beim ersten Boot automatisch von Ubuntu ausgeführt.
+# Dadurch passiert die gesamte OS-Konfiguration ohne manuelles SSH.
+
+package_update: true
+package_upgrade: true
+
+# Benötigte Pakete:
+# - nginx: Webserver für HTML und JSON API
+# - jq: saubere JSON-Erzeugung im Shell-Script
+# - lshw: Hardware-/Virtualisierungsinformationen
+# - certbot + nginx plugin: automatisches Let's Encrypt Zertifikat bei FQDN
+packages:
+  - nginx
+  - jq
+  - lshw
+  - util-linux
+  - certbot
+  - python3-certbot-nginx
+
+write_files:
+  # Nginx Virtual Host. Er liefert / als Website und /api/v1/vm-details.json als API.
+  - path: /etc/nginx/sites-available/vm-details.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      server {
+          listen 80 default_server;
+          listen [::]:80 default_server;
+
+          # Wenn ein FQDN gesetzt ist, wird er als server_name verwendet.
+          # Ohne FQDN bleibt Nginx über IP erreichbar.
+          server_name ${fqdn};
+
+          root /var/www/vm-details;
+          index index.html;
+
+          # HTML Website
+          location / {
+              try_files $uri $uri/ =404;
+          }
+
+          # JSON API Endpoint mit eigenem Content-Type.
+          location = /api/v1/vm-details.json {
+              default_type application/json;
+              alias /var/www/vm-details/api/v1/vm-details.json;
+          }
+      }
+
+  # Script sammelt technische VM-Informationen und rendert HTML + JSON.
+  - path: /usr/local/bin/render-vm-details.sh
+    owner: root:root
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      WEB_ROOT="/var/www/vm-details"
+      API_DIR="$WEB_ROOT/api/v1"
+      JSON_FILE="$API_DIR/vm-details.json"
+      HTML_FILE="$WEB_ROOT/index.html"
+
+      mkdir -p "$API_DIR"
+
+      # Exoscale/Cloud-Init stellt Meta-Daten lokal bereit; externe APIs sind nicht nötig.
+      INSTANCE_ID="$(cat /var/lib/cloud/data/instance-id 2>/dev/null || hostname)"
+      HOSTNAME="$(hostname -f 2>/dev/null || hostname)"
+      PUBLIC_IPV4="$(curl -fsS --max-time 3 http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || hostname -I | awk '{print $1}')"
+      LOCAL_IPV4="$(hostname -I | awk '{print $1}')"
+      OS_PRETTY="$(. /etc/os-release && echo "$PRETTY_NAME")"
+      KERNEL="$(uname -srmo)"
+      ARCH="$(uname -m)"
+      UPTIME="$(uptime -p)"
+      CPU_MODEL="$(lscpu | awk -F: '/Model name/ {gsub(/^[ \t]+/, "", $2); print $2; exit}')"
+      CPU_COUNT="$(nproc)"
+      MEMORY_TOTAL="$(free -h | awk '/Mem:/ {print $2}')"
+      MEMORY_AVAILABLE="$(free -h | awk '/Mem:/ {print $7}')"
+      HYPERVISOR="$(systemd-detect-virt 2>/dev/null || true)"
+      STORAGE="$(lsblk -b -o NAME,SIZE,TYPE,MOUNTPOINT --json)"
+      FILESYSTEMS="$(df -hT --output=source,fstype,size,used,avail,pcent,target | tail -n +2 | jq -R -s 'split("\n")[:-1] | map(split(" ") | map(select(length > 0))) | map({source: .[0], type: .[1], size: .[2], used: .[3], available: .[4], use_percent: .[5], mountpoint: .[6]})')"
+      GENERATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+      # JSON API erzeugen. jq kümmert sich um korrektes Escaping.
+      jq -n \
+        --arg generated_at "$GENERATED_AT" \
+        --arg instance_id "$INSTANCE_ID" \
+        --arg hostname "$HOSTNAME" \
+        --arg public_ipv4 "$PUBLIC_IPV4" \
+        --arg local_ipv4 "$LOCAL_IPV4" \
+        --arg os "$OS_PRETTY" \
+        --arg kernel "$KERNEL" \
+        --arg arch "$ARCH" \
+        --arg uptime "$UPTIME" \
+        --arg cpu_model "$CPU_MODEL" \
+        --arg cpu_count "$CPU_COUNT" \
+        --arg memory_total "$MEMORY_TOTAL" \
+        --arg memory_available "$MEMORY_AVAILABLE" \
+        --arg hypervisor "$HYPERVISOR" \
+        --argjson storage "$STORAGE" \
+        --argjson filesystems "$FILESYSTEMS" \
+        '{generated_at: $generated_at, instance: {id: $instance_id, hostname: $hostname}, network: {public_ipv4: $public_ipv4, local_ipv4: $local_ipv4}, operating_system: {name: $os, kernel: $kernel, architecture: $arch, uptime: $uptime}, compute: {cpu_model: $cpu_model, cpu_count: ($cpu_count|tonumber), memory_total: $memory_total, memory_available: $memory_available, hypervisor: $hypervisor}, storage: $storage.blockdevices, filesystems: $filesystems}' \
+        > "$JSON_FILE"
+
+      # Werte für HTML extrahieren, damit Website und API denselben Datenstand verwenden.
+      GENERATED_AT_HTML="$(jq -r '.generated_at' "$JSON_FILE")"
+      HOSTNAME_HTML="$(jq -r '.instance.hostname' "$JSON_FILE")"
+      IP_HTML="$(jq -r '.network.public_ipv4' "$JSON_FILE")"
+      OS_HTML="$(jq -r '.operating_system.name' "$JSON_FILE")"
+      KERNEL_HTML="$(jq -r '.operating_system.kernel' "$JSON_FILE")"
+      HYPERVISOR_HTML="$(jq -r '.compute.hypervisor' "$JSON_FILE")"
+      CPU_HTML="$(jq -r '.compute.cpu_model + " (" + (.compute.cpu_count|tostring) + " vCPU)"' "$JSON_FILE")"
+      MEMORY_HTML="$(jq -r '.compute.memory_total + " total / " + .compute.memory_available + " verfügbar"' "$JSON_FILE")"
+      FILESYSTEM_ROWS="$(jq -r '.filesystems[] | "<tr><td>" + .source + "</td><td>" + .type + "</td><td>" + .size + "</td><td>" + .used + "</td><td>" + .available + "</td><td>" + .use_percent + "</td><td>" + .mountpoint + "</td></tr>"' "$JSON_FILE")"
+      STORAGE_ROWS="$(jq -r '.storage[] | "<tr><td>" + .name + "</td><td>" + ((.size / 1073741824)|floor|tostring) + " GiB</td><td>" + .type + "</td><td>" + (.mountpoint // "-") + "</td></tr>"' "$JSON_FILE")"
+
+      cat > "$HTML_FILE" <<HTML
+      <!doctype html>
+      <html lang="de">
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>VM Details</title>
+        <style>
+          body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; background: #f5f7fb; color: #182033; }
+          header { background: #182033; color: white; padding: 2rem; }
+          main { max-width: 1100px; margin: 2rem auto; padding: 0 1rem; }
+          .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem; }
+          .card { background: white; border-radius: 14px; padding: 1rem; box-shadow: 0 4px 18px rgba(0,0,0,.08); }
+          .label { color: #63708a; font-size: .85rem; }
+          .value { font-size: 1.05rem; font-weight: 650; margin-top: .25rem; word-break: break-word; }
+          table { width: 100%; border-collapse: collapse; background: white; border-radius: 14px; overflow: hidden; box-shadow: 0 4px 18px rgba(0,0,0,.08); }
+          th, td { text-align: left; padding: .75rem; border-bottom: 1px solid #e7ebf3; }
+          th { background: #eef2f8; }
+          a { color: #265dff; }
+          .muted { color: #63708a; }
+        </style>
+      </head>
+      <body>
+        <header>
+          <h1>Technische Details der Exoscale VM</h1>
+          <p>Automatisch erzeugt durch Cloud-Init. Letzte Aktualisierung: $GENERATED_AT_HTML UTC</p>
+        </header>
+        <main>
+          <section class="grid">
+            <div class="card"><div class="label">Hostname</div><div class="value">$HOSTNAME_HTML</div></div>
+            <div class="card"><div class="label">Öffentliche IP</div><div class="value">$IP_HTML</div></div>
+            <div class="card"><div class="label">Betriebssystem</div><div class="value">$OS_HTML</div></div>
+            <div class="card"><div class="label">Kernel</div><div class="value">$KERNEL_HTML</div></div>
+            <div class="card"><div class="label">Hypervisor</div><div class="value">$HYPERVISOR_HTML</div></div>
+            <div class="card"><div class="label">CPU</div><div class="value">$CPU_HTML</div></div>
+            <div class="card"><div class="label">Memory</div><div class="value">$MEMORY_HTML</div></div>
+            <div class="card"><div class="label">JSON API</div><div class="value"><a href="/api/v1/vm-details.json">/api/v1/vm-details.json</a></div></div>
+          </section>
+
+          <h2>Storage</h2>
+          <table>
+            <thead><tr><th>Name</th><th>Größe</th><th>Typ</th><th>Mountpoint</th></tr></thead>
+            <tbody>$STORAGE_ROWS</tbody>
+          </table>
+
+          <h2>Filesysteme</h2>
+          <table>
+            <thead><tr><th>Source</th><th>Typ</th><th>Größe</th><th>Verwendet</th><th>Verfügbar</th><th>Nutzung</th><th>Mountpoint</th></tr></thead>
+            <tbody>$FILESYSTEM_ROWS</tbody>
+          </table>
+
+          <p class="muted">Diese Seite wird minütlich per systemd Timer aus Live-Systemdaten neu generiert.</p>
+        </main>
+      </body>
+      </html>
+HTML
+    
+  # systemd Service rendert HTML und JSON einmalig pro Lauf.
+  - path: /etc/systemd/system/vm-details-render.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Render VM details HTML and JSON
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/render-vm-details.sh
+
+  # Timer aktualisiert die Ausgabe minütlich.
+  - path: /etc/systemd/system/vm-details-render.timer
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Refresh VM details every minute
+
+      [Timer]
+      OnBootSec=30sec
+      OnUnitActiveSec=60sec
+      Unit=vm-details-render.service
+
+      [Install]
+      WantedBy=timers.target
+
+  # HTTPS Setup mit Retry. Certbot wartet indirekt darauf, dass DNS aufgelöst wird.
+  - path: /usr/local/bin/setup-https.sh
+    owner: root:root
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      FQDN="${fqdn}"
+      EMAIL="${letsencrypt_email}"
+
+      # Ohne FQDN kann Let's Encrypt kein gültiges Zertifikat für eine IP ausstellen.
+      if [ -z "$FQDN" ]; then
+        echo "Kein FQDN gesetzt, HTTPS wird übersprungen."
+        exit 0
+      fi
+
+      # Mehrere Versuche, weil DNS nach Terraform Apply wenige Minuten brauchen kann.
+      for attempt in $(seq 1 15); do
+        if getent hosts "$FQDN" >/dev/null 2>&1; then
+          certbot --nginx \
+            --non-interactive \
+            --agree-tos \
+            --redirect \
+            --email "$EMAIL" \
+            -d "$FQDN" && exit 0
+        fi
+        echo "DNS/Zertifikat noch nicht bereit, Versuch $attempt/15"
+        sleep 60
+      done
+
+      echo "HTTPS konnte noch nicht eingerichtet werden; HTTP bleibt verfügbar."
+      exit 0
+
+runcmd:
+  # Default Site entfernen, damit unsere Site sauber als default_server läuft.
+  - rm -f /etc/nginx/sites-enabled/default
+  - ln -sf /etc/nginx/sites-available/vm-details.conf /etc/nginx/sites-enabled/vm-details.conf
+  - nginx -t
+  - systemctl enable --now nginx
+
+  # Erste HTML/JSON-Ausgabe sofort erzeugen, danach per Timer aktualisieren.
+  - systemctl daemon-reload
+  - systemctl enable --now vm-details-render.timer
+  - systemctl start vm-details-render.service
+
+  # HTTPS im Hintergrund versuchen, damit Cloud-Init nicht unnötig blockiert.
+  - nohup /usr/local/bin/setup-https.sh >/var/log/setup-https.log 2>&1 &

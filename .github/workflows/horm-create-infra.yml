@@ -1,0 +1,53 @@
+# Workflow zum Erstellen der Exoscale Infrastruktur
+name: Horvath Michael – Create Infrastructure
+
+on:
+  # Manuell auslösbar über GitHub UI (Actions Tab → "Run workflow")
+  workflow_dispatch:
+
+jobs:
+  terraform:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.EXOSCALE_API_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.EXOSCALE_API_SECRET }}
+
+    defaults:
+      run:
+        working-directory: Horvath_Michael/Abgabe_2_260604/terraform
+
+    steps:
+      # 1. Repository auschecken – der Runner hat sonst keinen Code
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # 2. Terraform installieren
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      # 3. Terraform initialisieren – lädt den Exoscale Provider herunter
+      - name: Terraform Init
+        run: terraform init
+
+      # 4. Plan anzeigen – was wird erstellt? (nur zur Kontrolle, macht noch nichts)
+      - name: Terraform Plan
+        run: terraform plan
+        env:
+          # API Keys aus GitHub Secrets – werden NIE im Log angezeigt
+          TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # 5. Infrastruktur erstellen – -auto-approve überspringt die manuelle Bestätigung
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
+        env:
+          TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # 6. IP-Adresse ausgeben – damit wir wissen wohin wir browsen müssen
+      - name: Show VM IP
+        run: terraform output vm_url

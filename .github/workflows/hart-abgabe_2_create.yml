@@ -1,0 +1,75 @@
+# Erstellt die komplette Exoscale-Infrastruktur für Abgabe 2 per OpenTofu.
+name: Abgabe 2 - Create Exoscale Infrastructure
+
+on:
+  # Manuelles Starten im GitHub Actions UI.
+  workflow_dispatch:
+
+permissions:
+  # checkout benötigt Leserechte auf Repository-Inhalte.
+  contents: read
+
+env:
+  # Arbeitsverzeichnis der Terraform/OpenTofu-Konfiguration.
+  TF_WORKING_DIR: Abgabe_2_Harthold/terraform
+  # Exoscale Provider Credentials aus GitHub Secrets.
+  EXOSCALE_API_KEY: ${{ secrets.EXOSCALE_API_KEY }}
+  EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+  # S3-kompatible Backend Credentials für Exoscale SOS.
+  AWS_ACCESS_KEY_ID: ${{ secrets.SOS_ACCESS_KEY }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.SOS_SECRET_KEY }}
+
+jobs:
+  create:
+    name: tofu apply
+    runs-on: ubuntu-latest
+
+    steps:
+      # Lädt den Repository-Inhalt in den Runner.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Installiert OpenTofu CLI auf dem GitHub Runner.
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_wrapper: false
+
+      # Prüft, ob alle HCL-Dateien sauber formatiert sind.
+      - name: Check formatting
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: tofu fmt -check -recursive
+
+      # Initialisiert Provider und Remote-State-Backend in Exoscale SOS.
+      - name: Initialize OpenTofu
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          tofu init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=abgabe-2-harthold/terraform.tfstate" \
+            -backend-config="region=${{ vars.EXOSCALE_ZONE }}" \
+            -backend-config="endpoint=https://sos-${{ vars.EXOSCALE_ZONE }}.exo.io" \
+            -backend-config="skip_credentials_validation=true" \
+            -backend-config="skip_region_validation=true" \
+            -backend-config="skip_metadata_api_check=true" \
+            -backend-config="force_path_style=true"
+
+      # Validiert die Konfiguration syntaktisch und provider-seitig.
+      - name: Validate OpenTofu configuration
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: tofu validate
+
+      # Erstellt die Ressourcen ohne interaktive Rückfrage.
+      - name: Apply infrastructure
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          tofu apply -auto-approve \
+            -var="zone=${{ vars.EXOSCALE_ZONE }}"
+
+      # Schreibt die relevante URL in die GitHub Actions Summary.
+      - name: Print endpoint URL
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "## Abgabe 2 Endpoint" >> "$GITHUB_STEP_SUMMARY"
+          echo "HTTP URL: $(tofu output -raw http_url)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Health URL: $(tofu output -raw health_url)" >> "$GITHUB_STEP_SUMMARY"

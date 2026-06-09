@@ -1,0 +1,38 @@
+name: 'Terraform Deploy'
+
+on:
+  workflow_dispatch: # Erlaubt manuelles Triggern im GitHub UI
+
+jobs:
+  terraform:
+    name: 'Terraform Provisioning'
+    runs-on: ubuntu-latest
+    
+    env:
+      TF_VAR_exoscale_key: ${{ secrets.EXOSCALE_KEY }}
+      TF_VAR_exoscale_secret: ${{ secrets.EXOSCALE_SECRET }}
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform / OpenTofu
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.7.0 # Entspricht OpenTofu-Standard syntax
+
+    - name: Terraform Init
+      run: terraform init
+      working-directory: ./Abgabe_2_xxx/terraform # Pfad anpassen!
+
+    - name: Terraform Format Check
+      run: terraform fmt -check
+      working-directory: ./Abgabe_2_xxx/terraform
+
+    - name: Terraform Plan
+      run: terraform plan -input=false
+      working-directory: ./Abgabe_2_xxx/terraform
+
+    - name: Terraform Apply
+      run: terraform apply -auto-approve -input=false
+      working-directory: ./Abgabe_2_xxx/terraform

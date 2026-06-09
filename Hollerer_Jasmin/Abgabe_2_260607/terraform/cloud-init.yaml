@@ -1,0 +1,455 @@
+#cloud-config
+# =============================================================================
+# cloud-init.yaml – Automatische Konfiguration der Ubuntu VM beim ersten Boot
+
+
+
+# Paketlisten aktualisieren und Pakete installieren
+package_update: true
+package_upgrade: true
+packages:
+  - nginx          # Webserver
+  - jq             # JSON-Verarbeitung in Shell-Skripten
+  - sysstat        # iostat, mpstat für detaillierte Systeminfos
+  - lshw           # Hardware-Infos (Hypervisor-Typ etc.)
+  - net-tools      # ifconfig, netstat
+  - curl           # HTTP-Requests (für Metadaten-API)
+
+# Dateien direkt auf das Dateisystem schreiben
+write_files:
+
+  # ---------------------------------------------------------------------------
+  # nginx-Konfiguration: zwei Endpunkte / und /api
+  # ---------------------------------------------------------------------------
+  - path: /etc/nginx/sites-available/sysinfo
+    owner: root:root
+    permissions: '0644'
+    content: |
+      server {
+          listen 80 default_server;
+          listen [::]:80 default_server;
+
+          # Servername: Wildcard, damit die IP-Adresse direkt funktioniert
+          server_name _;
+
+          # HTML-Endpunkt: liefert eine fertig gerenderte Website
+          location /api {
+              root /var/www/sysinfo;
+              try_files /api.json =404;
+              # Kein Caching – Seite soll immer aktuell sein
+              add_header Cache-Control "no-cache, no-store, must-revalidate";
+          }
+
+          # JSON API-Endpunkt: liefert Rohdaten als JSON
+          location /api {
+              alias /var/www/sysinfo/;
+              index api.json;
+              # MIME-Type explizit setzen, damit Browser kein Download anbieten
+              types { }
+              default_type application/json;
+              add_header Cache-Control "no-cache, no-store, must-revalidate";
+              # CORS-Header: erlaubt Zugriff von anderen Domains (nützlich für APIs)
+              add_header Access-Control-Allow-Origin "*";
+          }
+      }
+
+  # ---------------------------------------------------------------------------
+  # Skript: sammelt Systeminformationen und schreibt HTML + JSON
+  # Wird alle 30 Sekunden vom systemd-Timer ausgeführt
+  # ---------------------------------------------------------------------------
+  - path: /usr/local/bin/generate-sysinfo.sh
+    owner: root:root
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # ==========================================================================
+      # generate-sysinfo.sh – Sammelt Systeminfos und generiert HTML + JSON
+      # ==========================================================================
+
+      # Ausgabeverzeichnis sicherstellen
+      mkdir -p /var/www/sysinfo
+
+      # --------------------------------------------------------------------------
+      # Systemdaten sammeln
+      # --------------------------------------------------------------------------
+
+      # Zeitstempel (ISO 8601)
+      TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+      # Hostname und IP-Adressen
+      HOSTNAME=$(hostname -f)
+      IP_PRIVATE=$(hostname -I | awk '{print $1}')
+      # Öffentliche IP via Exoscale Metadata-API (IMDSv1)
+      IP_PUBLIC=$(curl -sf --connect-timeout 2 http://169.254.169.254/latest/meta-data/public-ipv4 || echo "n/a")
+
+      # Kernel und OS
+      KERNEL=$(uname -r)
+      OS=$(grep PRETTY_NAME /etc/os-release | cut -d'"' -f2)
+      ARCH=$(uname -m)
+
+      # CPU
+      CPU_MODEL=$(grep "model name" /proc/cpuinfo | head -1 | cut -d: -f2 | xargs)
+      CPU_CORES=$(nproc)
+      CPU_LOAD=$(uptime | awk -F'load average:' '{print $2}' | xargs)
+
+      # Arbeitsspeicher (in MB)
+      MEM_TOTAL=$(awk '/MemTotal/ {printf "%.0f", $2/1024}' /proc/meminfo)
+      MEM_FREE=$(awk '/MemAvailable/ {printf "%.0f", $2/1024}' /proc/meminfo)
+      MEM_USED=$((MEM_TOTAL - MEM_FREE))
+
+      # Festplatten / Dateisysteme (nur echte Mounts, kein tmpfs)
+      DISK_INFO=$(df -h --output=source,fstype,size,used,avail,pcent,target \
+                  -x tmpfs -x devtmpfs -x squashfs 2>/dev/null | tail -n +2)
+
+      # Uptime in Sekunden → lesbar
+      UPTIME_SEC=$(awk '{print int($1)}' /proc/uptime)
+      UPTIME_HUMAN=$(printf '%dd %dh %dm %ds' \
+                     $((UPTIME_SEC/86400)) \
+                     $(((UPTIME_SEC%86400)/3600)) \
+                     $(((UPTIME_SEC%3600)/60)) \
+                     $((UPTIME_SEC%60)))
+
+      # Hypervisor-Typ (KVM, Xen, VMware, …)
+      HYPERVISOR=$(systemd-detect-virt 2>/dev/null || echo "unknown")
+
+      # Netzwerk-Interfaces (ohne lo)
+      NET_IFACES=$(ip -j addr 2>/dev/null | jq -r \
+                   '.[] | select(.ifname != "lo") | "\(.ifname): \(.addr_info[0].local // "n/a")"')
+
+      # Laufende Prozesse
+      PROC_COUNT=$(ps aux | wc -l)
+
+      # Kernel-Typ (für die Anforderung "Kernel Typ")
+      KERNEL_TYPE=$(uname -s)
+
+      # --------------------------------------------------------------------------
+      # JSON generieren (/api Endpunkt)
+      # --------------------------------------------------------------------------
+      cat > /var/www/sysinfo/api.json << ENDJSON
+      {
+        "generated_at": "${TIMESTAMP}",
+        "host": {
+          "hostname": "${HOSTNAME}",
+          "os": "${OS}",
+          "kernel": "${KERNEL}",
+          "kernel_type": "${KERNEL_TYPE}",
+          "architecture": "${ARCH}",
+          "uptime": "${UPTIME_HUMAN}",
+          "hypervisor": "${HYPERVISOR}"
+        },
+        "network": {
+          "ip_public": "${IP_PUBLIC}",
+          "ip_private": "${IP_PRIVATE}"
+        },
+        "cpu": {
+          "model": "${CPU_MODEL}",
+          "cores": ${CPU_CORES},
+          "load_avg": "${CPU_LOAD}"
+        },
+        "memory_mb": {
+          "total": ${MEM_TOTAL},
+          "used": ${MEM_USED},
+          "free": ${MEM_FREE}
+        },
+        "processes": ${PROC_COUNT}
+      }
+      ENDJSON
+
+      # --------------------------------------------------------------------------
+      # Dateisysteme als JSON-Array für HTML-Tabelle
+      # --------------------------------------------------------------------------
+      FS_JSON="["
+      FIRST=true
+      while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        SRC=$(echo "$line" | awk '{print $1}')
+        FSTYPE=$(echo "$line" | awk '{print $2}')
+        SIZE=$(echo "$line" | awk '{print $3}')
+        USED=$(echo "$line" | awk '{print $4}')
+        AVAIL=$(echo "$line" | awk '{print $5}')
+        PCT=$(echo "$line" | awk '{print $6}')
+        MNT=$(echo "$line" | awk '{print $7}')
+        $FIRST || FS_JSON+=","
+        FS_JSON+="{\"source\":\"$SRC\",\"fstype\":\"$FSTYPE\",\"size\":\"$SIZE\",\"used\":\"$USED\",\"avail\":\"$AVAIL\",\"use_pct\":\"$PCT\",\"mount\":\"$MNT\"}"
+        FIRST=false
+      done <<< "$DISK_INFO"
+      FS_JSON+="]"
+
+      # --------------------------------------------------------------------------
+      # HTML generieren (/ Endpunkt) – saubere, responsive Website
+      # --------------------------------------------------------------------------
+      cat > /var/www/sysinfo/index.html << ENDHTML
+      <!DOCTYPE html>
+      <html lang="de">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="refresh" content="30"> <!-- Auto-Refresh alle 30s -->
+        <title>VM Systeminformationen – ${HOSTNAME}</title>
+        <style>
+          /* ---- Reset & Base ---- */
+          *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+          body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 2rem;
+          }
+          /* ---- Header ---- */
+          header {
+            text-align: center;
+            margin-bottom: 2rem;
+          }
+          header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #38bdf8, #818cf8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+          }
+          header .subtitle {
+            color: #64748b;
+            margin-top: 0.4rem;
+            font-size: 0.9rem;
+          }
+          /* ---- Grid Layout ---- */
+          .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            max-width: 1200px;
+            margin: 0 auto;
+          }
+          /* ---- Cards ---- */
+          .card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 1.5rem;
+          }
+          .card h2 {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #38bdf8;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+          }
+          /* ---- Info-Zeilen ---- */
+          .info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            padding: 0.4rem 0;
+            border-bottom: 1px solid #1e3a5f22;
+          }
+          .info-row:last-child { border-bottom: none; }
+          .info-label { color: #94a3b8; font-size: 0.85rem; }
+          .info-value { color: #f1f5f9; font-size: 0.85rem; font-weight: 500; font-family: monospace; }
+          /* ---- Tabelle (Dateisysteme) ---- */
+          table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+          th {
+            text-align: left;
+            color: #38bdf8;
+            padding: 0.4rem 0.6rem;
+            border-bottom: 1px solid #334155;
+            font-weight: 600;
+          }
+          td { padding: 0.35rem 0.6rem; color: #cbd5e1; }
+          tr:nth-child(even) td { background: #0f172a33; }
+          /* ---- Progress Bar (RAM) ---- */
+          .progress-bar {
+            background: #334155;
+            border-radius: 9999px;
+            height: 8px;
+            margin-top: 0.5rem;
+            overflow: hidden;
+          }
+          .progress-fill {
+            height: 100%;
+            border-radius: 9999px;
+            background: linear-gradient(90deg, #38bdf8, #818cf8);
+          }
+          /* ---- Badge ---- */
+          .badge {
+            display: inline-block;
+            background: #0f172a;
+            border: 1px solid #38bdf8;
+            color: #38bdf8;
+            border-radius: 9999px;
+            padding: 0.1rem 0.6rem;
+            font-size: 0.75rem;
+            font-family: monospace;
+          }
+          /* ---- Footer ---- */
+          footer {
+            text-align: center;
+            margin-top: 2rem;
+            color: #475569;
+            font-size: 0.8rem;
+          }
+          footer a { color: #38bdf8; text-decoration: none; }
+        </style>
+      </head>
+      <body>
+        <header>
+          <h1>🖥 VM Systeminformationen</h1>
+          <p class="subtitle">
+            Generiert: ${TIMESTAMP} &nbsp;|&nbsp;
+            Auto-Refresh alle 30s &nbsp;|&nbsp;
+            <a href="/api">→ JSON API</a>
+          </p>
+        </header>
+
+        <div class="grid">
+
+          <!-- Host -->
+          <div class="card">
+            <h2> Host &amp; Betriebssystem</h2>
+            <div class="info-row"><span class="info-label">Hostname</span><span class="info-value">${HOSTNAME}</span></div>
+            <div class="info-row"><span class="info-label">OS</span><span class="info-value">${OS}</span></div>
+            <div class="info-row"><span class="info-label">Kernel</span><span class="info-value">${KERNEL}</span></div>
+            <div class="info-row"><span class="info-label">Kernel-Typ</span><span class="info-value">${KERNEL_TYPE}</span></div>
+            <div class="info-row"><span class="info-label">Architektur</span><span class="info-value">${ARCH}</span></div>
+            <div class="info-row"><span class="info-label">Uptime</span><span class="info-value">${UPTIME_HUMAN}</span></div>
+            <div class="info-row"><span class="info-label">Hypervisor</span><span class="badge">${HYPERVISOR}</span></div>
+          </div>
+
+          <!-- Netzwerk -->
+          <div class="card">
+            <h2> Netzwerk</h2>
+            <div class="info-row"><span class="info-label">Öffentliche IP</span><span class="info-value">${IP_PUBLIC}</span></div>
+            <div class="info-row"><span class="info-label">Private IP</span><span class="info-value">${IP_PRIVATE}</span></div>
+            <div class="info-row" style="flex-direction:column; align-items:flex-start; gap:0.3rem;">
+              <span class="info-label">Interfaces</span>
+              <pre style="color:#cbd5e1;font-size:0.8rem;white-space:pre-wrap;">${NET_IFACES}</pre>
+            </div>
+          </div>
+
+          <!-- CPU -->
+          <div class="card">
+            <h2> CPU</h2>
+            <div class="info-row"><span class="info-label">Modell</span><span class="info-value">${CPU_MODEL}</span></div>
+            <div class="info-row"><span class="info-label">Kerne</span><span class="info-value">${CPU_CORES}</span></div>
+            <div class="info-row"><span class="info-label">Load Average</span><span class="info-value">${CPU_LOAD}</span></div>
+          </div>
+
+          <!-- RAM -->
+          <div class="card">
+            <h2> Arbeitsspeicher</h2>
+            <div class="info-row"><span class="info-label">Gesamt</span><span class="info-value">${MEM_TOTAL} MB</span></div>
+            <div class="info-row"><span class="info-label">Genutzt</span><span class="info-value">${MEM_USED} MB</span></div>
+            <div class="info-row"><span class="info-label">Frei</span><span class="info-value">${MEM_FREE} MB</span></div>
+            <div class="progress-bar">
+              <div class="progress-fill" style="width: $(echo "scale=0; ${MEM_USED}*100/${MEM_TOTAL}" | bc)%"></div>
+            </div>
+          </div>
+
+          <!-- Prozesse -->
+          <div class="card">
+            <h2> Prozesse</h2>
+            <div class="info-row"><span class="info-label">Laufende Prozesse</span><span class="info-value">${PROC_COUNT}</span></div>
+          </div>
+
+        </div>
+
+        <!-- Dateisysteme -->
+        <div style="max-width:1200px; margin: 1.5rem auto 0;">
+          <div class="card">
+            <h2> Dateisysteme &amp; Storage</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Gerät</th><th>Typ</th><th>Größe</th>
+                  <th>Genutzt</th><th>Verfügbar</th><th>%</th><th>Mountpoint</th>
+                </tr>
+              </thead>
+              <tbody>
+      $(echo "$DISK_INFO" | while IFS= read -r line; do
+          [ -z "$line" ] && continue
+          echo "          <tr>"
+          echo "$line" | awk '{
+            printf "            <td><code>%s</code></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td>\n",
+            $1,$2,$3,$4,$5,$6,$7
+          }'
+          echo "          </tr>"
+      done)
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <footer>
+          FH Burgenland – BITI VICA SS26 &nbsp;|&nbsp;
+          Infrastruktur auf <strong>Exoscale AT-VIE-1</strong> &nbsp;|&nbsp;
+          <a href="/api">JSON API</a>
+        </footer>
+      </body>
+      </html>
+      ENDHTML
+
+      # Berechtigungen setzen: nginx (www-data) muss lesen können
+      chown -R www-data:www-data /var/www/sysinfo
+      chmod -R 755 /var/www/sysinfo
+
+# ---------------------------------------------------------------------------
+# systemd Service: führt das Skript aus
+# ---------------------------------------------------------------------------
+  - path: /etc/systemd/system/sysinfo.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Systeminformationen generieren (HTML + JSON)
+      After=network.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/generate-sysinfo.sh
+      # Läuft als root, damit auf alle /proc-Infos zugegriffen werden kann
+      User=root
+
+# ---------------------------------------------------------------------------
+# systemd Timer: startet den Service alle 30 Sekunden
+# ---------------------------------------------------------------------------
+  - path: /etc/systemd/system/sysinfo.timer
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Sysinfo alle 30 Sekunden aktualisieren
+
+      [Timer]
+      # Beim Boot sofort starten
+      OnBootSec=10s
+      # Danach alle 30 Sekunden wiederholen
+      OnUnitActiveSec=30s
+      Unit=sysinfo.service
+
+      [Install]
+      WantedBy=timers.target
+
+# Befehle, die nach dem Schreiben der Dateien ausgeführt werden
+runcmd:
+  # nginx: Default-Site deaktivieren, eigene aktivieren
+  - rm -f /etc/nginx/sites-enabled/default
+  - ln -s /etc/nginx/sites-available/sysinfo /etc/nginx/sites-enabled/sysinfo
+  - nginx -t                          # Konfiguration testen
+  - systemctl enable nginx
+  - systemctl start nginx
+
+  # systemd Timer aktivieren und starten
+  - systemctl daemon-reload
+  - systemctl enable sysinfo.timer
+  - systemctl start sysinfo.timer
+
+  # Sysinfo einmal sofort ausführen (damit die Seite nicht leer ist)
+  - /usr/local/bin/generate-sysinfo.sh
+
+  # bc installieren (wird für Prozentrechnung im HTML-Skript benötigt)
+  - apt-get install -y bc

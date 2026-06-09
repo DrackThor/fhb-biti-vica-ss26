@@ -1,0 +1,40 @@
+name: "Deploy Infrastructure"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.8.0"
+
+      - name: Init
+        working-directory: Edison_Blakaj/Abgabe_2_260517/terraform
+        env:
+          EXOSCALE_API_KEY:    ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+        run: tofu init
+
+      - name: Apply
+        working-directory: Edison_Blakaj/Abgabe_2_260517/terraform
+        env:
+          EXOSCALE_API_KEY:    ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+        run: |
+          tofu apply -auto-approve \
+            -var="zone=at-vie-1" \
+            -var="instance_type=standard.micro"
+
+      - name: Show outputs
+        working-directory: Edison_Blakaj/Abgabe_2_260517/terraform
+        env:
+          EXOSCALE_API_KEY:    ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+        run: tofu output

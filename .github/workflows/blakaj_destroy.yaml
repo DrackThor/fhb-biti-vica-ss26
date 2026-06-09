@@ -1,0 +1,20 @@
+name: "Destroy Infrastructure"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Exoscale CLI
+        run: curl -fsSL https://raw.githubusercontent.com/exoscale/cli/master/install-latest.sh | sh
+
+      - name: Delete VM and Security Group
+        env:
+          EXOSCALE_API_KEY:    ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+        run: |
+          exo compute instance delete blakaj-vminfo --zone at-vie-1 --force
+          exo compute security-group delete blakaj-vminfo-sg --force

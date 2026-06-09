@@ -1,0 +1,80 @@
+# =============================================================================
+# destroy.yml – GitHub Actions Workflow: Exoscale Infrastruktur löschen
+#
+# ACHTUNG: Dieser Workflow löscht alle erstellten Ressourcen unwiderruflich!
+# Doppelte Bestätigung erforderlich.
+# =============================================================================
+
+name:  Infrastruktur löschen
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Zum Löschen genau 'destroy' eingeben"
+        required: true
+        default: ""
+
+jobs:
+  terraform-destroy:
+    name: Terraform Destroy
+    runs-on: ubuntu-latest
+
+    # Sicherheitsprüfung: nur wenn exakt "destroy" eingegeben wurde
+    if: ${{ github.event.inputs.confirm == 'destroy' }}
+
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: Hollerer_Jasmin/Abgabe_2_260607/terraform
+
+    steps:
+      - name:  Repository auschecken
+        uses: actions/checkout@v4
+
+      - name:  Terraform installieren
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.x"
+
+      # Vorherigen Terraform State herunterladen (aus dem Deploy-Workflow)
+      # HINWEIS: Dies funktioniert nur wenn der State als Artifact gespeichert wurde.
+      # Produktiv: Remote Backend verwenden (z.B. Exoscale Object Storage als S3)
+      - name:  Terraform State laden
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-state
+          path: Hollerer_Jasmin/Abgabe_2_260607/terraform/
+
+      - name:  Terraform init
+        run: terraform init
+        env:
+          TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      # Plan für Destroy anzeigen
+      - name:  Terraform destroy plan
+        run: terraform plan -destroy
+        env:
+          TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+
+      # Infrastruktur unwiderruflich löschen
+      - name:  Terraform destroy
+        run: terraform destroy -auto-approve
+        env:
+          TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+
+      - name:  Zusammenfassung
+        run: |
+          echo "##  Infrastruktur erfolgreich gelöscht" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Alle Exoscale-Ressourcen wurden entfernt:" >> $GITHUB_STEP_SUMMARY
+          echo "- VM (vica-sysinfo)" >> $GITHUB_STEP_SUMMARY
+          echo "- Security Group (vica-web-sg)" >> $GITHUB_STEP_SUMMARY
+          echo "- SSH Key (vica-deploy-key)" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,91 @@
+#cloud-config
+# =====================================================================
+# cloud-init.yaml.tftpl
+# ---------------------------------------------------------------------
+# CloudInit-Konfiguration: laeuft EINMALIG beim ersten Boot der VM.
+# Sie installiert nginx und richtet die Info-Seite (HTML + JSON) ein.
+#
+# Hinweis: Dies ist eine Terraform-"templatefile"-Vorlage. Der Platzhalter
+# fuer das Base64-kodierte Skript wird beim Erstellen durch den Inhalt von
+# generate.py ersetzt (siehe main.tf). Sonst ist es ganz normales CloudInit-YAML.
+# =====================================================================
+
+package_update: true     # apt-Paketlisten aktualisieren
+package_upgrade: true    # vorhandene Pakete aktualisieren
+
+packages:                # diese Pakete installieren
+  - nginx
+  - curl
+
+write_files:
+  # ---- 1) Das Python-Skript, das die VM-Infos einsammelt -------------
+  # Das Python-Skript wird Base64-kodiert eingebettet (encoding: b64),
+  # damit keine YAML-Einrueckungsprobleme entstehen. cloud-init dekodiert es.
+  - path: /opt/vminfo/generate.py
+    permissions: '0755'
+    encoding: b64
+    content: ${generate_py_b64}
+
+  # ---- 2) nginx-Konfiguration mit ZWEI Endpunkten --------------------
+  #        /     -> index.html (Website, HTML)
+  #        /api  -> info.json  (API, als application/json)
+  - path: /etc/nginx/sites-available/vminfo
+    permissions: '0644'
+    content: |
+      server {
+          listen 80 default_server;
+          listen [::]:80 default_server;
+          root /var/www/vminfo;
+          index index.html;
+
+          # Website-Endpunkt: liefert die HTML-Seite
+          location / {
+              try_files $uri $uri/ =404;
+          }
+
+          # API-Endpunkt: liefert die JSON-Datei mit korrektem Content-Type
+          location = /api {
+              default_type application/json;
+              try_files /info.json =404;
+          }
+      }
+
+  # ---- 3) systemd-Service: ruft das Python-Skript einmal auf ---------
+  - path: /etc/systemd/system/vminfo.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=VM-Infos als HTML und JSON generieren
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/bin/python3 /opt/vminfo/generate.py
+
+  # ---- 4) systemd-Timer: fuehrt den Service jede Minute aus ----------
+  #        -> haelt die angezeigten Daten aktuell
+  - path: /etc/systemd/system/vminfo.timer
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=VM-Infos regelmaessig neu generieren
+
+      [Timer]
+      OnBootSec=30
+      OnUnitActiveSec=60
+
+      [Install]
+      WantedBy=timers.target
+
+runcmd:
+  # Web-Verzeichnis anlegen
+  - mkdir -p /var/www/vminfo
+  # Standard-nginx-Seite deaktivieren, unsere Konfiguration aktivieren
+  - rm -f /etc/nginx/sites-enabled/default
+  - ln -sf /etc/nginx/sites-available/vminfo /etc/nginx/sites-enabled/vminfo
+  # Infos einmal sofort generieren, damit die Seite direkt verfuegbar ist
+  - python3 /opt/vminfo/generate.py
+  # Timer aktivieren (erzeugt die Daten danach jede Minute neu)
+  - systemctl daemon-reload
+  - systemctl enable --now vminfo.timer
+  # nginx mit unserer Konfiguration neu starten
+  - systemctl restart nginx

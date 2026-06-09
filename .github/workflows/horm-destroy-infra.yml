@@ -1,0 +1,39 @@
+# Workflow zum Löschen der Exoscale Infrastruktur
+# ACHTUNG: Dieser Workflow löscht alle erstellten Ressourcen unwiderruflich!
+name: Horvath Michael – Destroy Infrastructure
+
+on:
+  # Nur manuell auslösbar – kein automatischer Trigger, zu gefährlich!
+  workflow_dispatch:
+
+jobs:
+  terraform:
+    name: Terraform Destroy
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.EXOSCALE_API_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.EXOSCALE_API_SECRET }}
+
+    defaults:
+      run:
+        working-directory: Horvath_Michael/Abgabe_2_260604/terraform
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      - name: Terraform Init
+        run: terraform init
+
+      # Alle Ressourcen löschen – -auto-approve überspringt die Bestätigung
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve
+        env:
+          TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}

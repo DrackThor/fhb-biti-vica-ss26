@@ -1,0 +1,26 @@
+name: Create Infrastructure
+
+on:
+  workflow_dispatch:
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+
+      - name: OpenTofu Init
+        working-directory: Popadic_David/Abgabe_2_260604/Tofu
+        run: tofu init
+
+      - name: OpenTofu Apply
+        working-directory: Popadic_David/Abgabe_2_260604/Tofu
+        env:
+          TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+        run: tofu apply -auto-approve

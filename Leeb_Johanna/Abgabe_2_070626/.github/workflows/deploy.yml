@@ -1,0 +1,54 @@
+name: "1. Exoscale Infrastruktur Erstellen"
+
+# Definiert, wann der Workflow startet
+on:
+  workflow_dispatch: # Ermöglicht das manuelle Starten per Knopfdruck im GitHub-UI
+
+permissions: # erlaubt dem Github Bot Datein in das Repo zu pushen - benötigt um beim Löschen alle nötigen State-Infos parat zu haben
+  contents: write
+
+jobs:
+  terraform-deploy:
+    name: "Terraform Apply"
+    runs-on: ubuntu-latest
+
+    steps:
+    #  Den Code aus dem GitHub-Repository auf den Runner herunterladen
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    #  Terraform auf dem GitHub-Runner installieren
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_wrapper: false # Wichtig für saubere Log-Ausgaben
+
+    # 3. Terraform initialisieren (lädt den Exoscale-Provider herunter)
+    - name: Terraform Init
+      run: terraform init -reconfigure
+      working-directory: ./terraform
+
+    # 4. Den Bauplan prüfen (Optional, zeigt was gebaut wird)
+    - name: Terraform Plan
+      run: terraform plan
+      working-directory: ./terraform
+      env:
+        TF_VAR_exoscale_key: ${{ secrets.EXOSCALE_KEY }}
+        TF_VAR_exoscale_secret: ${{ secrets.EXOSCALE_SECRET }}
+
+    # 5. Die Infrastruktur tatsächlich bauen  in Exoscale
+    - name: Terraform Apply
+      run: terraform apply -auto-approve  # -auto-approve überspringt die Ja/Nein-Abfrage
+      working-directory: ./terraform
+      env:
+        TF_VAR_exoscale_key: ${{ secrets.EXOSCALE_KEY }}
+        TF_VAR_exoscale_secret: ${{ secrets.EXOSCALE_SECRET }}
+
+# Status Absichern(terraform.tfstate) um die VM-Infos für den Löschprozess zu sichern
+    - name: Commit & Push Terraform State
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git add ./terraform/terraform.tfstate
+        git commit -m "State-Update: VM erfolgreich erstellt [skip ci]" || echo "Keine Änderungen am State"
+        git push

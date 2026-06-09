@@ -1,0 +1,42 @@
+name: Infrastruktur loeschen
+
+# Separate manuelle Aktion, damit die Infrastruktur nach der Bewertung wieder
+# gezielt entfernt werden kann.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TF_WORKDIR: Wagner_Raphael/Abgabe_2_260607/terraform
+  TF_STATE_BUCKET: ${{ vars.RWAGNER_TF_STATE_BUCKET || 'rwagner-abgabe2-tfstate' }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.EXOSCALE_API_KEY }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.EXOSCALE_API_SECRET }}
+  AWS_DEFAULT_REGION: at-vie-1
+  EXOSCALE_API_KEY: ${{ secrets.EXOSCALE_API_KEY }}
+  EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: OpenTofu installieren
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.9.0"
+
+      - name: OpenTofu init
+        working-directory: ${{ env.TF_WORKDIR }}
+        run: tofu init -input=false -backend-config="bucket=${TF_STATE_BUCKET}"
+
+      - name: OpenTofu destroy
+        working-directory: ${{ env.TF_WORKDIR }}
+        run: tofu destroy -input=false -auto-approve
+
+      - name: Ergebnis zusammenfassen
+        run: echo "## Abgabe 2 Infrastruktur wurde geloescht" >> "$GITHUB_STEP_SUMMARY"

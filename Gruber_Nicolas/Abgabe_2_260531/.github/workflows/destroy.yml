@@ -1,0 +1,70 @@
+# GitHub Actions Workflow: Infrastruktur loeschen
+# Entfernt die Exoscale VM und alle zugehoerigen Ressourcen
+# Sicherheit: Nur manuell ausfuehrbar mit Bestaetigungseingabe
+
+name: "Destroy VM"
+
+on:
+  # Ausschliesslich manueller Trigger
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Zur Bestaetigung "destroy" eingeben'
+        required: true
+        type: string
+
+# Verhindert parallele Ausfuehrung
+concurrency:
+  group: gruber-destroy
+  cancel-in-progress: false
+
+jobs:
+  destroy:
+    name: "Terraform Destroy"
+    runs-on: ubuntu-latest
+    # Sicherheitscheck: Nur bei korrekter Bestaetigung ausfuehren
+    if: github.event.inputs.confirm == 'destroy'
+    defaults:
+      run:
+        working-directory: Gruber_Nicolas/Abgabe_2_260531/terraform
+
+    steps:
+      # 1. Repository auschecken
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      # 2. Terraform installieren
+      - name: Terraform Setup
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+          terraform_wrapper: false
+
+      # 3. Gespeicherten State vom Deploy-Workflow laden
+      - name: State herunterladen
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          name: terraform-state
+          path: Gruber_Nicolas/Abgabe_2_260531/terraform/
+          workflow: deploy.yml
+          if_no_artifact_found: warn
+
+      # 4. Terraform initialisieren
+      - name: Terraform Init
+        run: terraform init
+
+      # 5. Alle Ressourcen loeschen
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve -input=false
+        env:
+          TF_VAR_exoscale_api_key: ${{ secrets.EXOSCALE_API_KEY }}
+          TF_VAR_exoscale_api_secret: ${{ secrets.EXOSCALE_API_SECRET }}
+          TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+          TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
+          TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TF_VAR_cloudflare_zone_id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          TF_VAR_letsencrypt_email: ${{ secrets.LETSENCRYPT_EMAIL }}
+
+      # 6. Bestaetigung
+      - name: Bestaetigung
+        run: echo "Alle Ressourcen wurden erfolgreich geloescht."

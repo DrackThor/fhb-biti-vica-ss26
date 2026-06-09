@@ -1,0 +1,74 @@
+name: Grafschafter - Deploy Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      zone:
+        description: 'Exoscale Zone (z.B. at-vie-2)'
+        required: false
+        default: 'at-vie-2'
+      instance_type:
+        description: 'Instance Type (z.B. standard.small)'
+        required: false
+        default: 'standard.small'
+
+concurrency:
+  group: terraform-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+
+    outputs:
+      vm_public_ip: ${{ steps.tf_output.outputs.vm_public_ip }}
+
+    defaults:
+      run:
+        working-directory: Grafschafter_Fabian/Abgabe_2_260606/terraform/
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.7.x"
+
+      - name: Terraform Init
+        run: tofu init
+        env:
+          EXOSCALE_API_KEY:    ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      - name: Terraform Plan
+        run: |
+          tofu plan \
+            -var="exoscale_api_key=${{ secrets.EXOSCALE_API_KEY }}" \
+            -var="exoscale_api_secret=${{ secrets.EXOSCALE_API_SECRET }}" \
+            -var="zone=${{ github.event.inputs.zone || 'at-vie-2' }}" \
+            -var="instance_type=${{ github.event.inputs.instance_type || 'standard.small' }}" \
+            -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}" \
+            -out=tfplan
+
+      - name: Terraform Apply
+        run: tofu apply -auto-approve tfplan
+        env:
+          EXOSCALE_API_KEY:    ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+
+      - name: Read Outputs
+        id: tf_output
+        run: |
+          IP=$(tofu output -raw vm_public_ip)
+          echo "vm_public_ip=$IP" >> $GITHUB_OUTPUT
+          echo "### ✅ Deployment erfolgreich" >> $GITHUB_STEP_SUMMARY
+          echo "| Endpunkt | URL |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-----|" >> $GITHUB_STEP_SUMMARY
+          echo "| HTML Website | http://$IP/ |" >> $GITHUB_STEP_SUMMARY
+          echo "| JSON API     | http://$IP/api |" >> $GITHUB_STEP_SUMMARY
+        env:
+          EXOSCALE_API_KEY:    ${{ secrets.EXOSCALE_API_KEY }}
+          EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}

@@ -1,0 +1,58 @@
+# name für die Github Action festlegen
+name: "Buketits Destroy Infrastructure"
+
+# Schreibberechtigungen für das committen der .tfstate datei
+permissions:
+  contents: write
+
+  # manuellen Start für die Action festlegen
+on: workflow_dispatch
+jobs:
+  terraform:
+    # OS der VM festlegen
+    runs-on: ubuntu-latest
+
+    # Directory im repo festlegen, in dem die Terraform-Dateien liegen
+    defaults:
+      run:
+        working-directory: ./Buketits_David/Abgabe_2_Exoscale
+
+    env:
+      # Exoscale API-Key und Secret aus Github Secrets laden
+        EXOSCALE_API_KEY: ${{ secrets.EXOSCALE_API_KEY }}
+        EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+
+
+    steps:
+      # repo für nutzung durch die Actiopn auschecken
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # Terraform einrichten
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # Terraform starten
+      - name: Terraform Init
+        run: terraform init
+
+      # Terraform die notwendigen Schritte zum Abbau planen lassen
+      - name: Terraform Plan Destroy
+        run: terraform plan -destroy
+
+      # Durchführen des erstellten plans
+      - name: Terraform Destroy
+        # -auto-approve ist wichtig, da in der Pipeline keine manuelle Eingabe von "yes" möglich ist
+        run: terraform destroy -auto-approve
+
+        # tfstate committen, da ohne diese Datei das destroy script keine Schritte planen kann
+      - name: Commit Terraform state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git status
+          git add terraform.tfstate terraform.tfstate.backup || true
+          
+          git commit -m "Update Terraform state" || echo "No state changes to commit"
+          git push

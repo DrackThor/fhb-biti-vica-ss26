@@ -1,0 +1,67 @@
+name: Abgabe2 - Infrastruktur erstellen   # erscheint im "Actions"-Menue
+
+# Nur manuell ausloesbar -> keine ungewollten Deployments/Kosten bei jedem Push.
+on:
+  workflow_dispatch:
+
+# Gemeinsame Variablen fuer alle Jobs/Steps.
+env:
+  ZONE: at-vie-1
+  TF_WORKDIR: Habel_Michael/Abgabe_2_260606/terraform
+  # Bucket fuer den Remote-State: aus Repo-Variable, sonst Default.
+  TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET || 'fhb-biti-vica-ss26-abgabe2-tfstate' }}
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    env:
+      # Der Exoscale-Provider liest diese beiden Variablen automatisch:
+      EXOSCALE_API_KEY: ${{ secrets.EXOSCALE_API_KEY }}
+      EXOSCALE_API_SECRET: ${{ secrets.EXOSCALE_API_SECRET }}
+      # Das S3/SOS-Backend nutzt dieselben Credentials im AWS-Format:
+      AWS_ACCESS_KEY_ID: ${{ secrets.EXOSCALE_API_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.EXOSCALE_API_SECRET }}
+      AWS_DEFAULT_REGION: at-vie-1
+      # Optionaler SSH-Key wird als Terraform-Variable durchgereicht (leer = kein Key):
+      TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: OpenTofu installieren
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.9.0"
+
+      - name: State-Bucket in Exoscale SOS sicherstellen (idempotent)
+        # aws-cli ist auf ubuntu-latest vorinstalliert. Existiert der Bucket
+        # bereits, schlaegt "mb" fehl -> per "|| true" tolerieren.
+        run: |
+          aws --endpoint-url "https://sos-${ZONE}.exo.io" \
+              s3 mb "s3://${TF_STATE_BUCKET}" || true
+
+      - name: OpenTofu init (Remote-State in SOS)
+        working-directory: ${{ env.TF_WORKDIR }}
+        run: tofu init -input=false -backend-config="bucket=${TF_STATE_BUCKET}"
+
+      - name: OpenTofu apply
+        working-directory: ${{ env.TF_WORKDIR }}
+        run: tofu apply -input=false -auto-approve -var="zone=${ZONE}"
+
+      - name: Ziel-URL in die Job-Zusammenfassung schreiben
+        working-directory: ${{ env.TF_WORKDIR }}
+        run: |
+          {
+            echo "## Deployment erfolgreich :rocket:"
+            echo ""
+            echo "| Output | Wert |"
+            echo "|--------|------|"
+            echo "| IP     | \`$(tofu output -raw instance_ip)\` |"
+            echo "| HTTP   | $(tofu output -raw url_http) |"
+            echo "| HTTPS  | $(tofu output -raw url_https) |"
+            echo "| JSON   | $(tofu output -raw api_json) |"
+            echo ""
+            echo "> Hinweis: cloud-init benoetigt nach dem Apply ca. 1-2 Minuten,"
+            echo "> bis der Dienst antwortet (Updates + Dienststart)."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,8 @@
+# Lokale OpenTofu/Terraform-Artefakte gehoeren nicht ins Repository.
+.terraform/
+__pycache__/
+*.tfstate
+*.tfstate.*
+*.tfvars
+crash.log
+crash.*.log

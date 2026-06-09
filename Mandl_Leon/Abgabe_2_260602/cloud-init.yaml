@@ -1,0 +1,82 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+# Benötigte Pakete für Webserver und Systeminfos.
+packages:
+  - nginx
+  - curl
+  - util-linux
+  - pciutils
+
+write_files:
+  # Script erstellt die HTML-Seite mit VM-Informationen.
+  - path: /usr/local/bin/vm-info.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+
+      META_URL="http://metadata.exoscale.com/latest/meta-data"
+
+      get_meta() {
+        curl -s --max-time 2 "$META_URL/$1" || echo "n/a"
+      }
+
+      PUBLIC_IP="$(get_meta public-ipv4)"
+      LOCAL_IP="$(get_meta local-ipv4)"
+      INSTANCE_ID="$(get_meta instance-id)"
+      ZONE="$(get_meta availability-zone)"
+
+      HOSTNAME="$(hostname)"
+      OS="$(. /etc/os-release && echo "$PRETTY_NAME")"
+      KERNEL="$(uname -a)"
+      MEMORY="$(free -h | awk '/Mem:/ {print $2}')"
+      VIRT="$(systemd-detect-virt || echo unknown)"
+      DATE="$(date)"
+
+      cat > /var/www/html/index.html <<HTML
+      <!doctype html>
+      <html lang="de">
+      <head>
+        <meta charset="utf-8">
+        <title>VM Details</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+          .box { background: white; padding: 20px; border-radius: 8px; max-width: 900px; }
+          table { border-collapse: collapse; width: 100%; }
+          td { padding: 8px; border-bottom: 1px solid #ddd; }
+          td:first-child { font-weight: bold; width: 220px; }
+          pre { background: #222; color: #eee; padding: 12px; overflow-x: auto; }
+        </style>
+      </head>
+      <body>
+        <div class="box">
+          <h1>Technische Details der Exoscale VM</h1>
+          <p>Aktualisiert: ${DATE}</p>
+
+          <table>
+            <tr><td>Hostname</td><td>${HOSTNAME}</td></tr>
+            <tr><td>Public IP</td><td>${PUBLIC_IP}</td></tr>
+            <tr><td>Local IP</td><td>${LOCAL_IP}</td></tr>
+            <tr><td>Instance ID</td><td>${INSTANCE_ID}</td></tr>
+            <tr><td>Zone</td><td>${ZONE}</td></tr>
+            <tr><td>Betriebssystem</td><td>${OS}</td></tr>
+            <tr><td>Kernel</td><td>${KERNEL}</td></tr>
+            <tr><td>Memory</td><td>${MEMORY}</td></tr>
+            <tr><td>Virtualisierung</td><td>${VIRT}</td></tr>
+          </table>
+
+          <h2>Storage</h2>
+          <pre>$(lsblk)</pre>
+
+          <h2>Filesysteme</h2>
+          <pre>$(df -hT)</pre>
+        </div>
+      </body>
+      </html>
+      HTML
+
+runcmd:
+  # Nginx starten und Webseite erzeugen.
+  - systemctl enable --now nginx
+  - /usr/local/bin/vm-info.sh

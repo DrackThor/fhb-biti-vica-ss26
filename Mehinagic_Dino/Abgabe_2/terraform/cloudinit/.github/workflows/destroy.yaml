@@ -1,0 +1,28 @@
+name: 'Terraform Destroy'
+
+on:
+  workflow_dispatch:
+
+jobs:
+  terraform-destroy:
+    name: 'Terraform Teardown'
+    runs-on: ubuntu-latest
+    
+    env:
+      TF_VAR_exoscale_key: ${{ secrets.EXOSCALE_KEY }}
+      TF_VAR_exoscale_secret: ${{ secrets.EXOSCALE_SECRET }}
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+
+    - name: Terraform Init
+      run: terraform init
+      working-directory: ./Abgabe_2_xxx/terraform
+
+    - name: Terraform Destroy
+      run: terraform destroy -auto-approve
+      working-directory: ./Abgabe_2_xxx/terraform

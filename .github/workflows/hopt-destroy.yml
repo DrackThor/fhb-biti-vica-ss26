@@ -1,0 +1,105 @@
+# =============================================================================
+# destroy.yml – GitHub Actions Workflow: Exoscale Infrastruktur löschen
+# Löscht alle erstellten Ressourcen (VM, EIP, Security Group, SSH Key)
+# 
+# Achtung: Diese Aktion ist nicht umkehrbar!
+# Benötigt denselben Terraform State wie der deploy.yml Workflow.
+# =============================================================================
+
+name: 🗑️ Destroy Infrastruktur
+
+on:
+  # Nur manuell ausführbar (Schutz vor versehentlichem Löschen)
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Gib "destroy" ein um zu bestätigen'
+        required: true
+        type: string
+
+# Verhindert parallele Ausführung
+concurrency:
+  group: terraform-deploy
+  cancel-in-progress: false
+
+jobs:
+  destroy:
+    name: Infrastruktur löschen
+    runs-on: ubuntu-latest
+    
+    # Nur ausführen wenn Bestätigung korrekt eingegeben wurde
+    if: ${{ github.event.inputs.confirm == 'destroy' }}
+
+    steps:
+      # ------------------------------------------------------------------
+      # 1. Repository auschecken
+      # ------------------------------------------------------------------
+      - name: 📥 Repository auschecken
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # 2. OpenTofu installieren
+      # ------------------------------------------------------------------
+      - name: 🔧 OpenTofu installieren
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: '1.7.x'
+
+      # ------------------------------------------------------------------
+      # 3. Terraform State vom Artifact wiederherstellen
+      # Der State aus dem letzten deploy.yml run wird benötigt
+      # ------------------------------------------------------------------
+      - name: 💾 Terraform State herunterladen
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-state
+          path: Hoppe_Thomas/Abgabe_2_260604/terraform/
+        # Fehler ignorieren (falls kein State vorhanden ist)
+        continue-on-error: true
+
+      # ------------------------------------------------------------------
+      # 4. Alternativ: State aus Cache wiederherstellen
+      # ------------------------------------------------------------------
+      - name: 💾 Terraform State aus Cache laden
+        uses: actions/cache@v4
+        with:
+          path: Hoppe_Thomas/Abgabe_2_260604/terraform/terraform.tfstate
+          key: terraform-state-${{ github.ref_name }}
+          restore-keys: |
+            terraform-state-
+
+      # ------------------------------------------------------------------
+      # 5. OpenTofu initialisieren
+      # ------------------------------------------------------------------
+      - name: 🔄 OpenTofu initialisieren
+        working-directory: Hoppe_Thomas/Abgabe_2_260604/terraform
+        run: tofu init
+
+      # ------------------------------------------------------------------
+      # 6. Infrastruktur löschen
+      # tofu destroy entfernt alle im State verwalteten Ressourcen
+      # ------------------------------------------------------------------
+      - name: 💥 Infrastruktur löschen
+        working-directory: Hoppe_Thomas/Abgabe_2_260604/terraform
+        run: |
+          tofu destroy -auto-approve \
+            -var="exoscale_api_key=${{ secrets.EXOSCALE_API_KEY }}" \
+            -var="exoscale_api_secret=${{ secrets.EXOSCALE_API_SECRET }}" \
+            -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}" \
+            -var="domain=${{ secrets.DOMAIN }}" \
+            -var="letsencrypt_email=${{ secrets.LETSENCRYPT_EMAIL }}"
+
+      # ------------------------------------------------------------------
+      # 7. Zusammenfassung ausgeben
+      # ------------------------------------------------------------------
+      - name: 📊 Zusammenfassung
+        run: |
+          echo "### 🗑️ Infrastruktur gelöscht" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Alle Exoscale-Ressourcen wurden erfolgreich entfernt." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Folgende Ressourcen wurden gelöscht:" >> $GITHUB_STEP_SUMMARY
+          echo "- 🖥️ Compute Instance (VM)" >> $GITHUB_STEP_SUMMARY
+          echo "- 🌐 Elastic IP" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔒 Security Group + Regeln" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔑 SSH Key" >> $GITHUB_STEP_SUMMARY
